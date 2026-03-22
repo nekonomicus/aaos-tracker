@@ -234,6 +234,40 @@
     font-weight: 600; padding: 8px 0; text-align: center;
   }
 
+  /* TODAY CHAPTERS (inside log-today) */
+  .lt-ch-head {
+    font-size: 10px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 3px; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 16px 0 8px; margin-top: 8px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .lt-ch-count {
+    font-size: 11px; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .lt-ch {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 8px; border-radius: 3px; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .lt-ch:hover { background: var(--bg-hover); }
+  .lt-ch-box {
+    width: 20px; height: 20px; border: 2px solid var(--border-hover);
+    border-radius: 3px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .lt-ch-box.on { background: var(--accent); border-color: var(--accent); }
+  .lt-ch-box.on::after { content: '\2713'; color: #000; font-size: 12px; font-weight: 800; }
+  .lt-ch-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text-muted); width: 32px; flex-shrink: 0; font-weight: 600;
+  }
+  .lt-ch-title { font-size: 14px; color: var(--text); font-weight: 500; }
+  .lt-ch.done .lt-ch-title { color: var(--text-muted); text-decoration: line-through; }
+
   /* LOG TODAY */
   .log-today {
     background: var(--bg-card); border: 1px solid var(--border);
@@ -632,23 +666,26 @@
     <div class="slider-row">
       <div class="slider-label">ResStudy Qs</div>
       <div class="slider-wrap">
-        <input type="range" class="slider-input accent-slider" id="slider-rs" min="0" max="60" value="0"
+        <input type="range" class="slider-input accent-slider" id="slider-rs" min="0" max="200" value="0"
           oninput="onSlider('rs', this.value)">
       </div>
       <div class="slider-val accent" id="slider-rs-val">0</div>
-      <div class="slider-max">/ 60</div>
+      <div class="slider-max">/ 200</div>
     </div>
     <div class="slider-row">
       <div class="slider-label">Volume 3 Qs</div>
       <div class="slider-wrap">
-        <input type="range" class="slider-input warn-slider" id="slider-v3" min="0" max="20" value="0"
+        <input type="range" class="slider-input warn-slider" id="slider-v3" min="0" max="200" value="0"
           oninput="onSlider('v3', this.value)">
       </div>
       <div class="slider-val warn" id="slider-v3-val">0</div>
-      <div class="slider-max">/ 20</div>
+      <div class="slider-max">/ 200</div>
     </div>
     <div id="log-today-targets">
       <!-- daily targets rendered here -->
+    </div>
+    <div id="log-today-chapters">
+      <!-- today's chapters rendered here -->
     </div>
   </div>
 
@@ -956,6 +993,25 @@ function renderToday() {
   sliderV3.value = todayData.v3 || 0;
   document.getElementById('slider-rs-val').textContent = todayData.rs || 0;
   document.getElementById('slider-v3-val').textContent = todayData.v3 || 0;
+
+  // Today's chapters inside LOG TODAY
+  const todayChDone = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
+  document.getElementById('log-today-chapters').innerHTML = `
+    <div class="lt-ch-head">
+      <span>Today's Chapters</span>
+      <span class="lt-ch-count">${todayChDone} / ${w.chapters.length}</span>
+    </div>
+    ${w.chapters.map(([num, title]) => {
+      const key = `ch_${num}`;
+      const isDone = state.chapters[key];
+      return `
+        <div class="lt-ch ${isDone ? 'done' : ''}" onclick="toggleCh('${key}')">
+          <div class="lt-ch-box ${isDone ? 'on' : ''}"></div>
+          <div class="lt-ch-num">${num}</div>
+          <div class="lt-ch-title">${title}</div>
+        </div>`;
+    }).join('')}
+  `;
 
   // Chapters
   const done = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
