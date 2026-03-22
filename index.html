@@ -175,6 +175,65 @@
   .q-value.accent { color: var(--accent); }
   .q-value.warn { color: var(--warn); }
 
+  /* DAILY TARGETS */
+  .daily-targets {
+    padding: 0 24px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dt-header {
+    font-size: 10px; font-weight: 600; color: var(--text-muted);
+    letter-spacing: 3px; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 16px 0 12px;
+  }
+  .dt-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .dt-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 14px 16px;
+    text-align: center;
+  }
+  .dt-card.rescue { border-color: rgba(255,59,92,0.2); }
+  .dt-card.standard { border-color: rgba(74,158,255,0.2); }
+  .dt-card.heavy { border-color: rgba(0,212,170,0.2); }
+  .dt-mode {
+    font-size: 9px; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 10px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .dt-card.rescue .dt-mode { color: var(--danger); }
+  .dt-card.standard .dt-mode { color: var(--blue); }
+  .dt-card.heavy .dt-mode { color: var(--accent); }
+  .dt-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 0;
+  }
+  .dt-label {
+    font-size: 10px; color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .dt-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px; font-weight: 700; color: var(--text);
+  }
+  .dt-card.rescue .dt-val { color: var(--danger); }
+  .dt-card.standard .dt-val { color: var(--blue); }
+  .dt-card.heavy .dt-val { color: var(--accent); }
+  .dt-remaining {
+    font-size: 10px; color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 10px; padding-top: 8px;
+    border-top: 1px solid var(--border);
+    text-align: left;
+  }
+  .dt-remaining span { color: var(--text-dim); }
+  .dt-done-msg {
+    font-size: 12px; color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600; padding: 8px 0; text-align: center;
+  }
+
   /* NOTE CANVAS */
   .note-canvas {
     width: 100%; min-height: 300px;
@@ -517,6 +576,9 @@
       <div class="q-targets" id="today-q-targets">
         <!-- filled by JS -->
       </div>
+      <div class="daily-targets" id="today-daily-targets">
+        <!-- filled by JS -->
+      </div>
       <div class="v3-focus" id="today-v3">Vol 3: <span id="today-v3-text"></span></div>
       <div class="panel-body" id="today-ch-list">
         <!-- filled by JS -->
@@ -720,6 +782,86 @@ function renderToday() {
     </div>
   `;
   document.getElementById('today-v3-text').textContent = w.v3focus;
+
+  // === DAILY TARGETS (rescue / standard / heavy) ===
+  // Calculate what's left this week
+  const prevCp = w.num > 1 ? WEEKS[w.num - 2].checkpoint : { rs: 0, v3: 0, ch: 0 };
+  const weekTargetRs = typeof w.checkpoint.rs === 'number' ? w.checkpoint.rs - (typeof prevCp.rs === 'number' ? prevCp.rs : 0) : 0;
+  const weekTargetV3 = typeof w.checkpoint.v3 === 'number' ? w.checkpoint.v3 - (typeof prevCp.v3 === 'number' ? prevCp.v3 : 0) : 0;
+  const weekTargetCh = w.checkpoint.ch - (prevCp.ch || 0);
+
+  // Sum what's already logged this week
+  const wStart = new Date(w.start); wStart.setHours(0,0,0,0);
+  const wEnd = new Date(w.end); wEnd.setHours(23,59,59,999);
+  let weekDoneRs = 0, weekDoneV3 = 0;
+  for (let d = new Date(wStart); d <= wEnd; d.setDate(d.getDate() + 1)) {
+    const k = dateKey(d);
+    const dd = state.daily[k] || {};
+    weekDoneRs += parseInt(dd.rs) || 0;
+    weekDoneV3 += parseInt(dd.v3) || 0;
+  }
+  // Chapters checked off for this week
+  const weekDoneCh = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
+
+  const remainRs = Math.max(0, weekTargetRs - weekDoneRs);
+  const remainV3 = Math.max(0, weekTargetV3 - weekDoneV3);
+  const remainCh = Math.max(0, weekTargetCh - weekDoneCh);
+
+  // Days left in the week including today
+  const wEndDate = new Date(w.end); wEndDate.setHours(0,0,0,0);
+  const dLeft = Math.max(1, Math.ceil((wEndDate - t) / 864e5) + 1);
+
+  const allDone = remainRs === 0 && remainV3 === 0 && remainCh === 0;
+
+  if (allDone) {
+    document.getElementById('today-daily-targets').innerHTML = `
+      <div class="dt-header">Today's Targets</div>
+      <div class="dt-done-msg">WEEK ${w.num} TARGETS MET</div>
+    `;
+  } else {
+    // Engine modes define per-session caps; scale by what remains and days left
+    // Rescue: 20 RS, 0 V3, 1 ch (minimum viable)
+    // Standard: 40 RS, 5 V3, 1-2 ch (normal pace)
+    // Heavy: 50 RS, 10 V3, 2 ch (push pace)
+    const rescueRs = Math.min(20, Math.ceil(remainRs / dLeft));
+    const rescueV3 = 0;
+    const rescueCh = Math.min(1, remainCh);
+
+    const stdRs = Math.min(40, Math.ceil(remainRs / dLeft));
+    const stdV3 = Math.min(5, Math.ceil(remainV3 / dLeft));
+    const stdCh = Math.min(2, Math.ceil(remainCh / dLeft));
+
+    const heavyRs = Math.min(50, Math.ceil(remainRs / Math.max(1, Math.floor(dLeft / 2))));
+    const heavyV3 = Math.min(10, Math.ceil(remainV3 / Math.max(1, Math.floor(dLeft / 2))));
+    const heavyCh = Math.min(2, Math.ceil(remainCh / Math.max(1, Math.floor(dLeft / 2))));
+
+    document.getElementById('today-daily-targets').innerHTML = `
+      <div class="dt-header">Today's Targets &mdash; ${dLeft} day${dLeft > 1 ? 's' : ''} left this week</div>
+      <div class="dt-grid">
+        <div class="dt-card rescue">
+          <div class="dt-mode">Rescue</div>
+          <div class="dt-row"><div class="dt-label">RS</div><div class="dt-val">${rescueRs}</div></div>
+          <div class="dt-row"><div class="dt-label">V3</div><div class="dt-val">${rescueV3}</div></div>
+          <div class="dt-row"><div class="dt-label">Ch</div><div class="dt-val">${rescueCh}</div></div>
+        </div>
+        <div class="dt-card standard">
+          <div class="dt-mode">Standard</div>
+          <div class="dt-row"><div class="dt-label">RS</div><div class="dt-val">${stdRs}</div></div>
+          <div class="dt-row"><div class="dt-label">V3</div><div class="dt-val">${stdV3}</div></div>
+          <div class="dt-row"><div class="dt-label">Ch</div><div class="dt-val">${stdCh}</div></div>
+        </div>
+        <div class="dt-card heavy">
+          <div class="dt-mode">Heavy</div>
+          <div class="dt-row"><div class="dt-label">RS</div><div class="dt-val">${heavyRs}</div></div>
+          <div class="dt-row"><div class="dt-label">V3</div><div class="dt-val">${heavyV3}</div></div>
+          <div class="dt-row"><div class="dt-label">Ch</div><div class="dt-val">${heavyCh}</div></div>
+        </div>
+      </div>
+      <div class="dt-remaining">
+        Remaining this week: <span>RS ${remainRs}</span> &nbsp; <span>V3 ${remainV3}</span> &nbsp; <span>Ch ${remainCh}</span>
+      </div>
+    `;
+  }
 
   // Chapters
   const done = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
