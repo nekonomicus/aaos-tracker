@@ -5,448 +5,448 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AAOS COR4 + ResStudy // 90-Day Tracker</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
   :root {
-    --bg-primary: #0a0a0a;
-    --bg-secondary: #111111;
-    --bg-tertiary: #1a1a1a;
-    --bg-card: #141414;
-    --border: #222222;
-    --border-hover: #333333;
-    --text-primary: #e8e8e8;
-    --text-secondary: #888888;
-    --text-muted: #555555;
+    --bg: #000000;
+    --bg-card: #0a0a0a;
+    --bg-input: #0d0d0d;
+    --bg-hover: #111111;
+    --border: #1a1a1a;
+    --border-hover: #2a2a2a;
+    --text: #e8e8e8;
+    --text-dim: #777777;
+    --text-muted: #444444;
     --accent: #00d4aa;
-    --accent-dim: rgba(0, 212, 170, 0.15);
-    --accent-border: rgba(0, 212, 170, 0.3);
+    --accent-dim: rgba(0,212,170,0.12);
+    --accent-border: rgba(0,212,170,0.25);
     --warn: #ff6b35;
-    --warn-dim: rgba(255, 107, 53, 0.15);
+    --warn-dim: rgba(255,107,53,0.12);
     --danger: #ff3b5c;
-    --danger-dim: rgba(255, 59, 92, 0.15);
+    --danger-dim: rgba(255,59,92,0.12);
     --blue: #4a9eff;
-    --blue-dim: rgba(74, 158, 255, 0.15);
+    --blue-dim: rgba(74,158,255,0.12);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-family: 'Inter', -apple-system, sans-serif;
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; }
   .mono { font-family: 'JetBrains Mono', monospace; }
 
-  /* TOP BAR */
+  /* TOPBAR */
   .topbar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-    background: rgba(10,10,10,0.92);
-    backdrop-filter: blur(12px);
+    background: rgba(0,0,0,0.95); backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
-    padding: 0 32px;
-    height: 52px;
+    padding: 0 40px; height: 48px;
     display: flex; align-items: center; justify-content: space-between;
   }
   .topbar-left { display: flex; align-items: center; gap: 16px; }
   .topbar-logo {
     font-family: 'JetBrains Mono', monospace;
-    font-weight: 600; font-size: 13px;
-    color: var(--accent);
-    letter-spacing: 2px;
-    text-transform: uppercase;
+    font-weight: 700; font-size: 12px; color: var(--accent);
+    letter-spacing: 3px; text-transform: uppercase;
   }
-  .topbar-divider { width: 1px; height: 20px; background: var(--border); }
-  .topbar-title { font-size: 13px; color: var(--text-secondary); font-weight: 400; }
-  .topbar-right { display: flex; align-items: center; gap: 20px; }
-  .topbar-stat {
+  .topbar-sep { width: 1px; height: 16px; background: var(--border); }
+  .topbar-sub { font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .tb-btn {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    padding: 4px 12px; border-radius: 3px; font-size: 10px; cursor: pointer;
+    font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  .tb-btn:hover { border-color: var(--text-dim); color: var(--text); }
+  .tb-btn.accent { border-color: var(--accent-border); color: var(--accent); }
+  .tb-btn.accent:hover { border-color: var(--accent); }
+
+  /* LAYOUT */
+  .shell { padding: 64px 40px 40px; max-width: 1600px; margin: 0 auto; }
+
+  /* ===== TODAY HERO ===== */
+  .today-hero { margin-bottom: 40px; }
+  .today-date-row {
+    display: flex; align-items: baseline; gap: 20px; margin-bottom: 8px;
+  }
+  .today-label {
+    font-size: 11px; font-weight: 600; color: var(--accent);
+    letter-spacing: 4px; text-transform: uppercase;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--text-muted);
   }
-  .topbar-stat span { color: var(--text-primary); }
+  .today-date {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-muted); letter-spacing: 1px;
+  }
+  .today-focus {
+    font-size: 42px; font-weight: 800; color: var(--text);
+    line-height: 1.1; margin-bottom: 6px; letter-spacing: -1px;
+  }
+  .today-section-sub {
+    font-size: 15px; color: var(--text-dim); font-weight: 400;
+    margin-bottom: 24px;
+  }
 
-  /* MAIN */
-  .main { padding: 72px 32px 48px; max-width: 1400px; margin: 0 auto; }
+  /* STATS ROW */
+  .stats-row {
+    display: flex; gap: 32px; margin-bottom: 32px;
+    padding: 20px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .stat-block {}
+  .stat-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px; font-weight: 700; line-height: 1;
+  }
+  .stat-num.accent { color: var(--accent); }
+  .stat-num.warn { color: var(--warn); }
+  .stat-num.blue { color: var(--blue); }
+  .stat-num.danger { color: var(--danger); }
+  .stat-label {
+    font-size: 10px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 2px; margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
 
-  /* HERO METRICS */
-  .hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
-  .metric-card {
+  /* ===== TWO COLUMN LAYOUT ===== */
+  .today-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
+    margin-bottom: 40px;
+  }
+
+  /* CHAPTERS PANEL */
+  .panel {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 20px 24px;
-    position: relative;
+    border-radius: 4px;
     overflow: hidden;
   }
-  .metric-card::before {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  .panel-head {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
   }
-  .metric-card.accent::before { background: linear-gradient(90deg, var(--accent), transparent); }
-  .metric-card.warn::before { background: linear-gradient(90deg, var(--warn), transparent); }
-  .metric-card.blue::before { background: linear-gradient(90deg, var(--blue), transparent); }
-  .metric-card.danger::before { background: linear-gradient(90deg, var(--danger), transparent); }
-  .metric-label {
-    font-size: 11px; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: 1.5px;
-    margin-bottom: 8px;
-  }
-  .metric-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 32px; font-weight: 600;
-    line-height: 1;
-  }
-  .metric-value.accent { color: var(--accent); }
-  .metric-value.warn { color: var(--warn); }
-  .metric-value.blue { color: var(--blue); }
-  .metric-value.danger { color: var(--danger); }
-  .metric-sub {
-    font-size: 12px; color: var(--text-muted);
-    margin-top: 6px;
+  .panel-title {
+    font-size: 11px; font-weight: 600; color: var(--accent);
+    letter-spacing: 3px; text-transform: uppercase;
     font-family: 'JetBrains Mono', monospace;
   }
+  .panel-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .panel-body { padding: 8px 0; }
 
-  /* PROGRESS SECTION */
-  .progress-section {
+  /* CHAPTER ITEMS */
+  .ch-item {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .ch-item:hover { background: var(--bg-hover); }
+  .ch-box {
+    width: 22px; height: 22px; border: 2px solid var(--border-hover);
+    border-radius: 3px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .ch-box.on { background: var(--accent); border-color: var(--accent); }
+  .ch-box.on::after { content: '\2713'; color: #000; font-size: 13px; font-weight: 800; }
+  .ch-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: var(--text-muted); width: 36px; flex-shrink: 0;
+    font-weight: 600;
+  }
+  .ch-title { font-size: 15px; color: var(--text); font-weight: 500; line-height: 1.3; }
+  .ch-item.done .ch-title { color: var(--text-muted); text-decoration: line-through; }
+
+  /* QUESTION TARGETS */
+  .q-targets {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .q-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0;
+  }
+  .q-row + .q-row { border-top: 1px solid var(--border); }
+  .q-label { font-size: 13px; color: var(--text-dim); }
+  .q-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px; font-weight: 700;
+  }
+  .q-value.accent { color: var(--accent); }
+  .q-value.warn { color: var(--warn); }
+
+  /* NOTE CANVAS */
+  .note-canvas {
+    width: 100%; min-height: 300px;
+    background: var(--bg-input); border: none;
+    padding: 20px 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: var(--text); line-height: 1.8;
+    resize: vertical; outline: none;
+  }
+  .note-canvas::placeholder { color: var(--text-muted); }
+  .note-canvas:focus { background: #0f0f0f; }
+
+  /* V3 FOCUS */
+  .v3-focus {
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .v3-focus span { color: var(--warn); }
+
+  /* ===== DAILY INPUT ROW ===== */
+  .daily-input-strip {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 20px 24px; margin-bottom: 32px;
+  }
+  .daily-strip-head {
+    font-size: 11px; font-weight: 600; color: var(--accent);
+    letter-spacing: 3px; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 16px;
+  }
+  .daily-strip-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;
+  }
+  .ds-cell {
+    text-align: center; padding: 10px 6px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+  .ds-cell.today { border-color: var(--accent-border); }
+  .ds-day {
+    font-size: 9px; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 2px;
+  }
+  .ds-date {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: var(--text-dim); margin-bottom: 6px; font-weight: 600;
+  }
+  .ds-input {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 2px; padding: 4px; width: 100%; text-align: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text); outline: none; margin-bottom: 3px;
+  }
+  .ds-input:focus { border-color: var(--accent-border); }
+  .ds-input::placeholder { color: var(--text-muted); font-size: 9px; }
+
+  /* ===== PROGRESS BARS ===== */
+  .progress-strip {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
     margin-bottom: 32px;
   }
-  .progress-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 20px 24px;
+  .prog-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 16px 20px;
   }
-  .progress-header {
+  .prog-head {
     display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
-  .progress-title {
-    font-size: 12px; color: var(--text-secondary);
-    text-transform: uppercase; letter-spacing: 1px;
+  .prog-title {
+    font-size: 10px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 2px;
   }
-  .progress-count {
+  .prog-count {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 13px; color: var(--text-primary);
+    font-size: 12px; color: var(--text-dim);
   }
-  .progress-bar-bg {
-    height: 4px; background: var(--bg-tertiary);
-    border-radius: 2px; overflow: hidden;
-  }
-  .progress-bar-fill {
-    height: 100%; border-radius: 2px;
-    transition: width 0.6s ease;
-  }
-  .progress-bar-fill.accent { background: var(--accent); }
-  .progress-bar-fill.warn { background: var(--warn); }
-  .progress-bar-fill.blue { background: var(--blue); }
+  .prog-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .prog-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .prog-fill.accent { background: var(--accent); }
+  .prog-fill.warn { background: var(--warn); }
+  .prog-fill.blue { background: var(--blue); }
 
-  /* TABS */
-  .tabs {
-    display: flex; gap: 0; margin-bottom: 0;
-    border-bottom: 1px solid var(--border);
-  }
+  /* ===== TABS ===== */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; }
   .tab {
-    padding: 10px 20px;
-    font-size: 12px; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: 1px;
-    cursor: pointer; border: none; background: none;
-    border-bottom: 2px solid transparent;
-    transition: all 0.2s;
-    font-family: 'Inter', sans-serif;
+    padding: 10px 24px; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 2px; cursor: pointer;
+    border: none; background: none; border-bottom: 2px solid transparent;
+    transition: all 0.15s; font-family: 'JetBrains Mono', monospace; font-weight: 500;
   }
-  .tab:hover { color: var(--text-secondary); }
+  .tab:hover { color: var(--text-dim); }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
-  /* WEEK GRID */
-  .weeks-grid { padding-top: 24px; }
-  .week-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    margin-bottom: 12px;
-    overflow: hidden;
-    transition: border-color 0.2s;
+  /* WEEK CARDS */
+  .weeks-grid { padding-top: 20px; }
+  .wk-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 8px; overflow: hidden;
   }
-  .week-card:hover { border-color: var(--border-hover); }
-  .week-card.current { border-color: var(--accent-border); }
-  .week-card.current .week-header { background: var(--accent-dim); }
-  .week-header {
+  .wk-card.current { border-color: var(--accent-border); }
+  .wk-card.current .wk-head { background: var(--accent-dim); }
+  .wk-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 24px;
-    cursor: pointer;
-    user-select: none;
+    padding: 14px 24px; cursor: pointer; user-select: none;
   }
-  .week-header-left { display: flex; align-items: center; gap: 16px; }
-  .week-number {
+  .wk-head-left { display: flex; align-items: center; gap: 16px; }
+  .wk-num {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px; color: var(--accent);
-    background: var(--accent-dim);
-    padding: 3px 8px; border-radius: 3px;
-    letter-spacing: 1px;
+    background: var(--accent-dim); padding: 2px 8px; border-radius: 2px;
+    letter-spacing: 1px; font-weight: 600;
   }
-  .week-focus { font-size: 13px; color: var(--text-primary); font-weight: 500; }
-  .week-dates { font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
-  .week-header-right { display: flex; align-items: center; gap: 16px; }
-  .week-targets {
-    display: flex; gap: 12px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--text-muted);
+  .wk-focus { font-size: 13px; color: var(--text); font-weight: 500; }
+  .wk-dates { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+  .wk-head-right { display: flex; align-items: center; gap: 16px; }
+  .wk-targets {
+    display: flex; gap: 10px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted);
   }
-  .week-targets span { white-space: nowrap; }
-  .chevron {
-    color: var(--text-muted); font-size: 14px;
-    transition: transform 0.2s;
+  .chevron { color: var(--text-muted); font-size: 12px; transition: transform 0.2s; }
+  .wk-card.open .chevron { transform: rotate(180deg); }
+  .wk-body { display: none; padding: 0 24px 16px; border-top: 1px solid var(--border); }
+  .wk-card.open .wk-body { display: block; }
+  .wk-section-label {
+    font-size: 10px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 2px; margin: 12px 0 6px;
   }
-  .week-card.open .chevron { transform: rotate(180deg); }
-  .week-body {
-    display: none;
-    padding: 0 24px 20px;
-    border-top: 1px solid var(--border);
-  }
-  .week-card.open .week-body { display: block; }
-
-  /* CHAPTER LIST */
-  .chapter-group-title {
-    font-size: 11px; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: 1.5px;
-    margin: 16px 0 8px;
-  }
-  .chapter-item {
+  .wk-ch {
     display: flex; align-items: center; gap: 12px;
-    padding: 8px 12px;
-    border-radius: 4px;
-    transition: background 0.15s;
+    padding: 7px 10px; border-radius: 3px; transition: background 0.1s;
   }
-  .chapter-item:hover { background: var(--bg-tertiary); }
-  .chapter-check {
-    width: 16px; height: 16px;
-    border: 1px solid var(--border-hover);
-    border-radius: 3px;
-    cursor: pointer;
+  .wk-ch:hover { background: var(--bg-hover); }
+  .wk-ch-box {
+    width: 16px; height: 16px; border: 1.5px solid var(--border-hover);
+    border-radius: 2px; flex-shrink: 0; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: all 0.15s;
-    flex-shrink: 0;
-    background: transparent;
   }
-  .chapter-check.checked {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .chapter-check.checked::after {
-    content: '\2713';
-    color: var(--bg-primary);
-    font-size: 11px;
-    font-weight: 700;
-  }
-  .chapter-num {
+  .wk-ch-box.on { background: var(--accent); border-color: var(--accent); }
+  .wk-ch-box.on::after { content: '\2713'; color: #000; font-size: 10px; font-weight: 800; }
+  .wk-ch-num {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px; color: var(--text-muted);
-    width: 32px; flex-shrink: 0;
+    font-size: 11px; color: var(--text-muted); width: 28px; flex-shrink: 0;
   }
-  .chapter-title {
-    font-size: 13px; color: var(--text-primary);
-  }
-  .chapter-item.done .chapter-title {
-    color: var(--text-muted);
-    text-decoration: line-through;
-  }
+  .wk-ch-title { font-size: 12px; color: var(--text-dim); }
+  .wk-ch.done .wk-ch-title { color: var(--text-muted); text-decoration: line-through; }
 
   /* DAILY LOG */
-  .daily-section { margin-top: 16px; }
-  .daily-grid {
+  .daily-log-grid { padding-top: 20px; }
+  .dl-week {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 20px 24px; margin-bottom: 12px;
+  }
+  .dl-week-title {
+    font-size: 11px; color: var(--accent);
+    letter-spacing: 3px; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace; font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .dl-week-meta {
+    font-size: 11px; color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace; margin-bottom: 12px;
+  }
+  .dl-grid {
     display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;
-    margin-top: 8px;
   }
-  .day-cell {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 10px;
-    text-align: center;
-    min-height: 80px;
+  .dl-cell {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; padding: 10px; text-align: center; min-height: 80px;
   }
-  .day-cell.today { border-color: var(--accent-border); }
-  .day-label {
-    font-size: 10px; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: 1px;
-    margin-bottom: 6px;
-  }
-  .day-date {
+  .dl-cell.today { border-color: var(--accent-border); }
+  .dl-day { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+  .dl-date {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 14px; color: var(--text-secondary);
-    margin-bottom: 8px;
+    font-size: 13px; color: var(--text-dim); margin-bottom: 6px; font-weight: 600;
   }
-  .day-inputs { display: flex; flex-direction: column; gap: 4px; }
-  .day-input {
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 4px 6px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    color: var(--text-primary);
-    width: 100%;
-    text-align: center;
-    outline: none;
+  .dl-input {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 2px; padding: 4px; width: 100%; text-align: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text); outline: none; margin-bottom: 3px;
   }
-  .day-input:focus { border-color: var(--accent-border); }
-  .day-input::placeholder { color: var(--text-muted); font-size: 10px; }
+  .dl-input:focus { border-color: var(--accent-border); }
+  .dl-input::placeholder { color: var(--text-muted); font-size: 9px; }
 
   /* RULES */
-  .rules-panel { padding-top: 24px; }
+  .rules-panel { padding-top: 20px; }
   .rule-section {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 24px;
-    margin-bottom: 16px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 24px; margin-bottom: 12px;
   }
   .rule-section-title {
-    font-size: 12px; color: var(--accent);
-    text-transform: uppercase; letter-spacing: 1.5px;
-    margin-bottom: 16px;
-    font-weight: 600;
+    font-size: 11px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 3px; margin-bottom: 16px;
+    font-weight: 600; font-family: 'JetBrains Mono', monospace;
   }
   .rule-item {
     display: flex; align-items: flex-start; gap: 12px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
+    padding: 8px 0; border-bottom: 1px solid var(--border);
   }
   .rule-item:last-child { border-bottom: none; }
-  .rule-bullet {
-    width: 4px; height: 4px;
-    background: var(--accent);
-    border-radius: 50%;
-    margin-top: 7px;
-    flex-shrink: 0;
-  }
-  .rule-text { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+  .rule-dot { width: 4px; height: 4px; background: var(--accent); border-radius: 50%; margin-top: 7px; flex-shrink: 0; }
+  .rule-text { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
 
-  /* ENGINE TABLE */
-  .engine-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
+  .engine-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .engine-table th {
-    text-align: left;
-    font-size: 11px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    font-weight: 500;
+    text-align: left; font-size: 10px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); font-weight: 500;
   }
   .engine-table td {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text-secondary);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px;
   }
   .engine-table tr:last-child td { border-bottom: none; }
-  .engine-label {
-    font-family: 'Inter', sans-serif !important;
-    font-weight: 500;
-    color: var(--text-primary) !important;
-  }
-  .engine-tag {
-    display: inline-block;
-    padding: 2px 8px; border-radius: 3px;
-    font-size: 11px; font-weight: 500;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .engine-tag.heavy { background: var(--accent-dim); color: var(--accent); }
-  .engine-tag.standard { background: var(--blue-dim); color: var(--blue); }
-  .engine-tag.slow { background: var(--warn-dim); color: var(--warn); }
-  .engine-tag.rescue { background: var(--danger-dim); color: var(--danger); }
+  .engine-label { font-family: 'Inter', sans-serif !important; font-weight: 500; color: var(--text) !important; }
+  .etag { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 10px; font-weight: 600; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; }
+  .etag.heavy { background: var(--accent-dim); color: var(--accent); }
+  .etag.standard { background: var(--blue-dim); color: var(--blue); }
+  .etag.slow { background: var(--warn-dim); color: var(--warn); }
+  .etag.rescue { background: var(--danger-dim); color: var(--danger); }
 
-  /* SECTION ORDER */
-  .section-order {
-    display: flex; flex-wrap: wrap; gap: 8px;
-    margin-top: 12px;
-  }
-  .section-pill {
+  .section-order { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .s-pill {
     display: flex; align-items: center; gap: 6px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 6px 12px;
-    font-size: 12px; color: var(--text-secondary);
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; padding: 5px 10px; font-size: 11px; color: var(--text-dim);
   }
-  .section-pill .num {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px; color: var(--text-muted);
-  }
-  .section-pill.completed { border-color: var(--accent-border); }
-  .section-pill.completed .num { color: var(--accent); }
-  .section-pill.active {
-    border-color: var(--accent);
-    background: var(--accent-dim);
-  }
-  .section-pill.active .num { color: var(--accent); }
-  .section-arrow { color: var(--text-muted); font-size: 11px; }
+  .s-pill .n { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-muted); }
+  .s-pill.done { border-color: var(--accent-border); }
+  .s-pill.done .n { color: var(--accent); }
+  .s-pill.now { border-color: var(--accent); background: var(--accent-dim); }
+  .s-pill.now .n { color: var(--accent); }
+  .s-arrow { color: var(--text-muted); font-size: 10px; }
 
   /* ERROR LOG */
   .error-log {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 24px;
-    margin-top: 16px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 24px; margin-top: 16px;
   }
   .error-log-title {
-    font-size: 12px; color: var(--danger);
-    text-transform: uppercase; letter-spacing: 1.5px;
-    margin-bottom: 12px; font-weight: 600;
+    font-size: 11px; color: var(--danger);
+    text-transform: uppercase; letter-spacing: 3px; margin-bottom: 12px;
+    font-weight: 600; font-family: 'JetBrains Mono', monospace;
   }
   .error-textarea {
-    width: 100%;
-    min-height: 120px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 12px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: var(--text-primary);
-    resize: vertical;
-    outline: none;
-    line-height: 1.6;
+    width: 100%; min-height: 120px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 12px; font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text); resize: vertical;
+    outline: none; line-height: 1.6;
   }
   .error-textarea:focus { border-color: var(--accent-border); }
   .error-textarea::placeholder { color: var(--text-muted); }
 
-  /* RESET */
-  .reset-btn {
-    background: none; border: 1px solid var(--border);
-    color: var(--text-muted); padding: 6px 14px;
-    border-radius: 4px; font-size: 11px; cursor: pointer;
-    font-family: 'JetBrains Mono', monospace;
-    letter-spacing: 0.5px;
-    transition: all 0.15s;
-  }
-  .reset-btn:hover { border-color: var(--danger); color: var(--danger); }
-
   /* RESPONSIVE */
-  @media (max-width: 900px) {
-    .hero { grid-template-columns: repeat(2, 1fr); }
-    .progress-section { grid-template-columns: 1fr; }
-    .daily-grid { grid-template-columns: repeat(4, 1fr); }
-    .main { padding: 72px 16px 48px; }
+  @media (max-width: 1000px) {
+    .today-grid { grid-template-columns: 1fr; }
+    .progress-strip { grid-template-columns: 1fr; }
+    .stats-row { flex-wrap: wrap; gap: 20px; }
+    .daily-strip-grid, .dl-grid { grid-template-columns: repeat(4, 1fr); }
+    .today-focus { font-size: 28px; }
+    .shell { padding: 60px 16px 32px; }
   }
   @media (max-width: 600px) {
-    .hero { grid-template-columns: 1fr; }
-    .daily-grid { grid-template-columns: repeat(2, 1fr); }
-    .week-header { flex-direction: column; align-items: flex-start; gap: 8px; }
-    .week-header-right { width: 100%; justify-content: space-between; }
+    .daily-strip-grid, .dl-grid { grid-template-columns: repeat(2, 1fr); }
+    .wk-head { flex-direction: column; align-items: flex-start; gap: 6px; }
   }
 </style>
 </head>
@@ -454,148 +454,155 @@
 
 <div class="topbar">
   <div class="topbar-left">
-    <div class="topbar-logo">AAOS Tracker</div>
-    <div class="topbar-divider"></div>
-    <div class="topbar-title">COR4 + ResStudy // 90-Day Protocol</div>
+    <div class="topbar-logo">AAOS</div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-sub">COR4 + RESSTUDY // 90-DAY PROTOCOL</div>
   </div>
   <div class="topbar-right">
-    <div class="topbar-stat">START <span>2026-03-21</span></div>
-    <div class="topbar-stat">END <span>2026-06-18</span></div>
-    <button class="reset-btn" onclick="exportData()" style="border-color:var(--accent);color:var(--accent);">EXPORT</button>
-    <button class="reset-btn" onclick="document.getElementById('import-file').click()">IMPORT</button>
+    <button class="tb-btn accent" onclick="exportData()">EXPORT</button>
+    <button class="tb-btn" onclick="document.getElementById('import-file').click()">IMPORT</button>
     <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
-    <button class="reset-btn" onclick="resetAll()">RESET DATA</button>
+    <button class="tb-btn" onclick="resetAll()">RESET</button>
   </div>
 </div>
 
-<div class="main">
-  <!-- HERO METRICS -->
-  <div class="hero">
-    <div class="metric-card accent">
-      <div class="metric-label">Days Remaining</div>
-      <div class="metric-value accent" id="days-remaining">--</div>
-      <div class="metric-sub" id="days-sub"></div>
+<div class="shell">
+
+  <!-- ===== TODAY HERO ===== -->
+  <div class="today-hero">
+    <div class="today-date-row">
+      <div class="today-label">Today</div>
+      <div class="today-date" id="today-date"></div>
     </div>
-    <div class="metric-card blue">
-      <div class="metric-label">Current Week</div>
-      <div class="metric-value blue" id="current-week">--</div>
-      <div class="metric-sub" id="week-focus-sub"></div>
+    <div class="today-focus" id="today-focus"></div>
+    <div class="today-section-sub" id="today-sub"></div>
+  </div>
+
+  <!-- STATS ROW -->
+  <div class="stats-row">
+    <div class="stat-block">
+      <div class="stat-num accent" id="s-days">--</div>
+      <div class="stat-label">Days Left</div>
     </div>
-    <div class="metric-card warn">
-      <div class="metric-label">Chapters Read</div>
-      <div class="metric-value warn" id="chapters-done">0</div>
-      <div class="metric-sub">of 151</div>
+    <div class="stat-block">
+      <div class="stat-num blue" id="s-week">--</div>
+      <div class="stat-label">Week</div>
     </div>
-    <div class="metric-card danger">
-      <div class="metric-label">Completion</div>
-      <div class="metric-value danger" id="completion-pct">0%</div>
-      <div class="metric-sub" id="completion-sub"></div>
+    <div class="stat-block">
+      <div class="stat-num warn" id="s-ch">0</div>
+      <div class="stat-label">Chapters Done</div>
     </div>
+    <div class="stat-block">
+      <div class="stat-num" id="s-rs" style="color:var(--accent)">0</div>
+      <div class="stat-label">ResStudy Qs</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-num" id="s-v3" style="color:var(--warn)">0</div>
+      <div class="stat-label">Vol 3 Qs</div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-num danger" id="s-pct">0%</div>
+      <div class="stat-label">Overall</div>
+    </div>
+  </div>
+
+  <!-- ===== TODAY GRID: CHAPTERS + NOTES ===== -->
+  <div class="today-grid">
+    <!-- LEFT: chapters to read -->
+    <div class="panel" id="today-chapters-panel">
+      <div class="panel-head">
+        <div class="panel-title">This Week's Chapters</div>
+        <div class="panel-count" id="today-ch-count"></div>
+      </div>
+      <div class="q-targets" id="today-q-targets">
+        <!-- filled by JS -->
+      </div>
+      <div class="v3-focus" id="today-v3">Vol 3: <span id="today-v3-text"></span></div>
+      <div class="panel-body" id="today-ch-list">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <!-- RIGHT: note canvas -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Notes</div>
+        <div class="panel-count" style="color:var(--text-muted)">freestyle</div>
+      </div>
+      <textarea class="note-canvas" id="note-canvas"
+        placeholder="jot anything here — classifications, indications, algorithms, imaging triggers, age patterns, pitfalls..."></textarea>
+    </div>
+  </div>
+
+  <!-- TODAY'S DAILY INPUT -->
+  <div class="daily-input-strip" id="today-daily-strip">
+    <div class="daily-strip-head">This Week &mdash; Daily Log</div>
+    <div class="daily-strip-grid" id="today-daily-grid"></div>
   </div>
 
   <!-- PROGRESS BARS -->
-  <div class="progress-section">
-    <div class="progress-card">
-      <div class="progress-header">
-        <div class="progress-title">ResStudy New Questions</div>
-        <div class="progress-count"><span id="rs-done">0</span> / 3,360+</div>
+  <div class="progress-strip">
+    <div class="prog-card">
+      <div class="prog-head">
+        <div class="prog-title">ResStudy New Qs</div>
+        <div class="prog-count"><span id="p-rs">0</span> / 3,360+</div>
       </div>
-      <div class="progress-bar-bg">
-        <div class="progress-bar-fill accent" id="rs-bar" style="width:0%"></div>
-      </div>
+      <div class="prog-bar"><div class="prog-fill accent" id="p-rs-bar" style="width:0%"></div></div>
     </div>
-    <div class="progress-card">
-      <div class="progress-header">
-        <div class="progress-title">Volume 3 Questions</div>
-        <div class="progress-count"><span id="v3-done">0</span> / 420+</div>
+    <div class="prog-card">
+      <div class="prog-head">
+        <div class="prog-title">Volume 3 Qs</div>
+        <div class="prog-count"><span id="p-v3">0</span> / 420+</div>
       </div>
-      <div class="progress-bar-bg">
-        <div class="progress-bar-fill warn" id="v3-bar" style="width:0%"></div>
-      </div>
+      <div class="prog-bar"><div class="prog-fill warn" id="p-v3-bar" style="width:0%"></div></div>
     </div>
-    <div class="progress-card">
-      <div class="progress-header">
-        <div class="progress-title">Chapters</div>
-        <div class="progress-count"><span id="ch-done">0</span> / 151</div>
+    <div class="prog-card">
+      <div class="prog-head">
+        <div class="prog-title">Chapters</div>
+        <div class="prog-count"><span id="p-ch">0</span> / 151</div>
       </div>
-      <div class="progress-bar-bg">
-        <div class="progress-bar-fill blue" id="ch-bar" style="width:0%"></div>
-      </div>
+      <div class="prog-bar"><div class="prog-fill blue" id="p-ch-bar" style="width:0%"></div></div>
     </div>
   </div>
 
-  <!-- TABS -->
+  <!-- ===== TABS FOR THE REST ===== -->
   <div class="tabs">
-    <button class="tab active" data-tab="weeks">Weekly Plan</button>
-    <button class="tab" data-tab="daily">Daily Log</button>
+    <button class="tab active" data-tab="weeks">All Weeks</button>
+    <button class="tab" data-tab="daily">Full Daily Log</button>
     <button class="tab" data-tab="rules">Rules & Engine</button>
     <button class="tab" data-tab="errors">Error Log</button>
   </div>
 
-  <!-- WEEKLY PLAN TAB -->
   <div class="tab-content active" id="tab-weeks">
     <div class="weeks-grid" id="weeks-container"></div>
   </div>
-
-  <!-- DAILY LOG TAB -->
   <div class="tab-content" id="tab-daily">
-    <div class="rules-panel">
-      <div id="daily-weeks-container"></div>
-    </div>
+    <div class="daily-log-grid" id="daily-log-container"></div>
   </div>
-
-  <!-- RULES TAB -->
   <div class="tab-content" id="tab-rules">
     <div class="rules-panel">
-      <!-- Section Order -->
       <div class="rule-section">
         <div class="rule-section-title">Locked Section Order</div>
         <div class="section-order" id="section-order"></div>
       </div>
-
-      <!-- Hard Rules -->
       <div class="rule-section">
         <div class="rule-section-title">Hard Rules</div>
         <div id="hard-rules"></div>
       </div>
-
-      <!-- Weekly Engine -->
       <div class="rule-section">
         <div class="rule-section-title">Weekly Engine</div>
         <table class="engine-table">
-          <thead>
-            <tr>
-              <th>Mode</th>
-              <th>ResStudy New</th>
-              <th>Vol 3 Qs</th>
-              <th>Chapters</th>
-              <th>Freq / Week</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Mode</th><th>ResStudy</th><th>Vol 3</th><th>Chapters</th><th>Freq</th></tr></thead>
           <tbody>
-            <tr>
-              <td class="engine-label"><span class="engine-tag heavy">HEAVY</span></td>
-              <td>50</td><td>10</td><td>2</td><td>2x</td>
-            </tr>
-            <tr>
-              <td class="engine-label"><span class="engine-tag standard">STANDARD</span></td>
-              <td>40</td><td>5</td><td>1-2</td><td>3x</td>
-            </tr>
-            <tr>
-              <td class="engine-label"><span class="engine-tag slow">SLOW</span></td>
-              <td>30</td><td>0</td><td>1</td><td>2x</td>
-            </tr>
-            <tr>
-              <td class="engine-label"><span class="engine-tag rescue">RESCUE</span></td>
-              <td>20</td><td>0</td><td>1 touch</td><td>Review wrong + lucky only</td>
-            </tr>
+            <tr><td class="engine-label"><span class="etag heavy">HEAVY</span></td><td>50</td><td>10</td><td>2</td><td>2x/wk</td></tr>
+            <tr><td class="engine-label"><span class="etag standard">STANDARD</span></td><td>40</td><td>5</td><td>1-2</td><td>3x/wk</td></tr>
+            <tr><td class="engine-label"><span class="etag slow">SLOW</span></td><td>30</td><td>0</td><td>1</td><td>2x/wk</td></tr>
+            <tr><td class="engine-label"><span class="etag rescue">RESCUE</span></td><td>20</td><td>0</td><td>1 touch</td><td>wrong+lucky only</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </div>
-
-  <!-- ERROR LOG TAB -->
   <div class="tab-content" id="tab-errors">
     <div class="rules-panel">
       <div class="error-log">
@@ -612,269 +619,22 @@
 // DATA
 // ============================================================
 const WEEKS = [
-  {
-    num: 1, start: '2026-03-21', end: '2026-03-27',
-    focus: 'Section 6 Shoulder and Elbow',
-    checkpoint: { rs: 280, v3: 35, ch: 9 },
-    v3focus: '156 Shoulder and Elbow',
-    chapters: [
-      [70, 'Anatomy of the Shoulder, Arm, and Elbow'],
-      [71, 'Physical Examination of the Shoulder and Elbow'],
-      [72, 'Imaging of the Shoulder and Elbow'],
-      [73, 'Rotator Cuff Tears and Cuff Tear Arthropathy'],
-      [74, 'Traumatic Shoulder Instability'],
-      [75, 'Multidirectional Instability'],
-      [76, 'Adhesive Capsulitis'],
-      [77, 'Arthritis and Arthroplasty of the Shoulder'],
-      [78, 'Complications in Primary and Revision Shoulder Arthroplasty'],
-    ]
-  },
-  {
-    num: 2, start: '2026-03-28', end: '2026-04-03',
-    focus: 'Section 6 Shoulder/Elbow, Section 10 Pediatrics',
-    checkpoint: { rs: 560, v3: 70, ch: 21 },
-    v3focus: '156 Shoulder and Elbow, 160 Pediatrics',
-    chapters: [
-      [79, 'Disorders of the Acromioclavicular Joint'],
-      [80, 'Disorders of the Sternoclavicular Joint'],
-      [81, 'Superior Labrum Anterior to Posterior Tears and Lesions of the Proximal Biceps Tendon'],
-      [82, 'Lateral and Medial Epicondylitis'],
-      [83, 'Elbow Stiffness'],
-      [84, 'Acute and Recurrent Elbow Instability'],
-      [85, 'Arthritis and Arthroplasty of the Elbow'],
-      [86, 'Distal Biceps and Triceps Tendon Injuries'],
-      [87, 'Elbow Injuries in the Athlete'],
-      [88, 'Disorders of the Scapula'],
-      [132, 'Skeletal Dysplasias and Mucopolysaccharidoses'],
-      [133, 'Pediatric Musculoskeletal Disorders and Syndromes'],
-    ]
-  },
-  {
-    num: 3, start: '2026-04-04', end: '2026-04-10',
-    focus: 'Section 10 Pediatrics, Section 11 Oncology',
-    checkpoint: { rs: 840, v3: 105, ch: 33 },
-    v3focus: '160 Pediatrics, 161 Oncology',
-    chapters: [
-      [134, 'Pediatric Neuromuscular Disorders'],
-      [135, 'Musculoskeletal Infection in Children and Adolescents'],
-      [136, 'The Pediatric Hip'],
-      [137, 'Pediatric Foot Conditions'],
-      [138, 'Pediatric Lower Extremity Deformities and Limb Deficiencies'],
-      [139, 'Limb Deformity Analysis'],
-      [140, 'Musculoskeletal Conditions and Injuries in the Young Athlete'],
-      [141, 'Pediatric Polytrauma and Upper Extremity Fractures'],
-      [142, 'Pediatric Pelvic and Lower Extremity Fractures'],
-      [143, 'Pediatric Spine'],
-      [144, 'Overview of Orthopaedic Oncology and Systemic Disease'],
-      [145, 'Treatment Modalities for Musculoskeletal Tumors'],
-    ]
-  },
-  {
-    num: 4, start: '2026-04-11', end: '2026-04-17',
-    focus: 'Section 11 Oncology, Section 3 Hand and Wrist',
-    checkpoint: { rs: 1120, v3: 140, ch: 45 },
-    v3focus: '161 Oncology, 153 Hand and Wrist',
-    chapters: [
-      [146, 'Benign Bone Tumors and Reactive Lesions'],
-      [147, 'Malignant Bone Tumors'],
-      [148, 'Benign Soft-Tissue Tumors and Reactive Lesions'],
-      [149, 'Malignant Soft-Tissue Tumors'],
-      [150, 'Metastatic Bone Disease'],
-      [151, 'Metabolic Bone and Inflammatory Joint Disease'],
-      [23, 'Anatomy of the Hand and Wrist'],
-      [24, 'Imaging of the Hand and Wrist'],
-      [25, 'Pediatric Hand and Wrist'],
-      [26, 'Arthritides of the Hand and Wrist'],
-      [27, 'Tendinopathy of the Hand and Wrist'],
-      [28, 'Dupuytren Disease'],
-    ]
-  },
-  {
-    num: 5, start: '2026-04-18', end: '2026-04-24',
-    focus: 'Section 3 Hand and Wrist',
-    checkpoint: { rs: 1400, v3: 175, ch: 58 },
-    v3focus: '153 Hand and Wrist',
-    chapters: [
-      [29, 'Carpal Instability'],
-      [30, 'Replantation'],
-      [31, 'Flexor and Extensor Tendon Injuries'],
-      [32, 'Nerve Anatomy and Repair'],
-      [33, 'Nerve Compression Syndromes'],
-      [34, 'Traumatic Brachial Plexus Injuries'],
-      [35, 'Nerve Transfers'],
-      [36, 'Tendon Transfers for Peripheral Nerve Injuries in the Upper Extremity'],
-      [37, 'Infections of the Hand'],
-      [38, 'Tumors of the Hand and Wrist'],
-      [39, 'Soft-Tissue Coverage'],
-      [40, 'Sports Injuries of the Hand and Wrist'],
-      [41, 'Disorders of the Upper Extremity'],
-    ]
-  },
-  {
-    num: 6, start: '2026-04-25', end: '2026-05-01',
-    focus: 'Section 7 Trauma',
-    checkpoint: { rs: 1680, v3: 210, ch: 70 },
-    v3focus: '157 Trauma',
-    chapters: [
-      [89, 'Evaluation of the Patient With Trauma'],
-      [90, 'Fracture Healing and the Biomechanics of Fracture Fixation'],
-      [91, 'Soft-Tissue Injuries, Open Fractures, and Acute Compartment Syndrome'],
-      [92, 'Nonunions and Malunions'],
-      [93, 'Fracture-Related Infections'],
-      [94, 'Fractures of the Clavicle, Scapula, and Glenoid'],
-      [95, 'Proximal Humerus Fractures'],
-      [96, 'Fractures of the Humeral Shaft'],
-      [97, 'Fractures of the Distal Humerus'],
-      [98, 'Elbow Fractures and Fracture-Dislocations'],
-      [99, 'Forearm and Distal Radius Fractures'],
-      [100, 'Fractures: Hand and Carpus'],
-    ]
-  },
-  {
-    num: 7, start: '2026-05-02', end: '2026-05-08',
-    focus: 'Section 7 Trauma, Section 1 General Knowledge',
-    checkpoint: { rs: 1960, v3: 245, ch: 83 },
-    v3focus: '157 Trauma, mixed carryover',
-    chapters: [
-      [101, 'Pelvic Fractures'],
-      [102, 'Acetabular Fractures, Hip Dislocation, and Femoral Head Fractures'],
-      [103, 'Fractures of the Proximal Femur'],
-      [104, 'Femoral Shaft Fractures and Atypical Femur Fractures'],
-      [105, 'Fractures of the Distal Femur'],
-      [106, 'Patellar Fractures and Extensor Mechanism Disruption'],
-      [107, 'Knee Dislocation and Tibial Plateau Fracture'],
-      [108, 'Tibial Shaft Fractures'],
-      [109, 'Fractures of the Ankle'],
-      [110, 'Pilon Fractures'],
-      [111, 'Foot Fractures and Fracture-Dislocations'],
-      [1, 'Musculoskeletal Imaging'],
-      [2, 'Preoperative Optimization and Perioperative Medical Comanagement'],
-    ]
-  },
-  {
-    num: 8, start: '2026-05-09', end: '2026-05-15',
-    focus: 'Section 1 General Knowledge, Section 5 Basic Science',
-    checkpoint: { rs: 2240, v3: 280, ch: 96 },
-    v3focus: '155 Basic Science, mixed carryover',
-    chapters: [
-      [3, 'Coagulation and Thromboembolism'],
-      [4, 'Normal and Pathologic Gait'],
-      [5, 'Orthoses, Amputations, and Prostheses'],
-      [6, 'Occupational Health/Work-Related Injury and Illness'],
-      [7, 'Anesthesiology'],
-      [8, 'Neuro-Orthopaedics and Rehabilitation'],
-      [9, 'Medicolegal Issues'],
-      [10, 'Medical Ethics'],
-      [11, 'Health Care Disparities'],
-      [56, 'Orthopaedic Molecular and Cellular Biology, Genetics, and Immunology'],
-      [57, 'Skeletal Development'],
-      [58, 'Musculoskeletal Infections and Microbiology'],
-      [59, 'Biomechanics'],
-    ]
-  },
-  {
-    num: 9, start: '2026-05-16', end: '2026-05-22',
-    focus: 'Section 5 Basic Science, Section 8 Foot and Ankle',
-    checkpoint: { rs: 2520, v3: 315, ch: 109 },
-    v3focus: '155 Basic Science, 158 Foot and Ankle',
-    chapters: [
-      [60, 'Principles of Regenerative Medicine in Orthopaedics: Biologics, Biomaterials, and New Frontiers'],
-      [61, 'Bone and Joint Biology'],
-      [62, 'Bone, Fracture Healing, and Nonunions'],
-      [63, 'Articular Cartilage and Osteoarthritis'],
-      [64, 'Tendons and Ligaments'],
-      [65, 'Peripheral Nervous System'],
-      [66, 'Skeletal Muscle'],
-      [67, 'Intervertebral Disk'],
-      [68, 'Statistics: Practical Applications for Orthopaedics'],
-      [69, 'Evidence-Based Medicine'],
-      [112, 'Anatomy and Biomechanics of the Foot and Ankle'],
-      [113, 'Disorders of the First Ray'],
-      [114, 'Forefoot Disorders'],
-    ]
-  },
-  {
-    num: 10, start: '2026-05-23', end: '2026-05-29',
-    focus: 'Section 8 Foot/Ankle, Section 9 Sports Medicine',
-    checkpoint: { rs: 2800, v3: 350, ch: 123 },
-    v3focus: '158 Foot and Ankle, 159 Sports Medicine',
-    chapters: [
-      [115, 'Sports Injuries of the Ankle'],
-      [116, 'Arthritides of the Foot and Ankle'],
-      [117, 'Tendon Disorders of the Foot and Ankle'],
-      [118, 'Heel Pain'],
-      [119, 'Neurologic Disorders of the Foot and Ankle'],
-      [120, 'The Diabetic Foot and Ankle'],
-      [121, 'Tumors and Infections of the Foot and Ankle'],
-      [122, 'Complex Foot and Ankle Deformities'],
-      [123, 'Anatomy and Biomechanics of the Knee'],
-      [124, 'Extensor Mechanism Injuries'],
-      [125, 'Ligamentous Injuries of the Knee'],
-      [126, 'Meniscal Injuries'],
-      [127, 'Articular Cartilage Injury and Treatment'],
-      [128, 'Orthobiologics in Sports Medicine'],
-    ]
-  },
-  {
-    num: 11, start: '2026-05-30', end: '2026-06-05',
-    focus: 'Section 9 Sports Medicine, Section 4 Hip and Knee',
-    checkpoint: { rs: 3080, v3: 385, ch: 135 },
-    v3focus: '159 Sports Medicine, 154 Total Joint Preservation and Arthroplasty',
-    chapters: [
-      [129, 'Concussion and Common Neurologic Sports Injuries'],
-      [130, 'Medical Aspects of Sports Participation'],
-      [131, 'Prevention and Rehabilitation of Sports Injuries'],
-      [42, 'General Evaluation of the Hip Patient'],
-      [43, 'Radiographic Evaluation of the Hip'],
-      [44, 'Surgical Anatomy of the Hip'],
-      [45, 'Nonarthroplasty Surgical Treatment of the Hip'],
-      [46, 'Primary Hip Arthroplasty'],
-      [47, 'Revision Total Hip Arthroplasty'],
-      [48, 'General Evaluation of the Knee Patient'],
-      [49, 'Radiographic Evaluation and Surgical Anatomy of the Knee'],
-      [50, 'Nonarthroplasty Surgical Treatment of the Knee'],
-    ]
-  },
-  {
-    num: 12, start: '2026-06-06', end: '2026-06-12',
-    focus: 'Section 4 Hip/Knee, Section 2 Spine',
-    checkpoint: { rs: 3360, v3: 420, ch: 148 },
-    v3focus: '154 Total Joint Preservation and Arthroplasty, 152 Spine',
-    chapters: [
-      [51, 'Primary Knee Arthroplasty'],
-      [52, 'Revision Total Knee Arthroplasty'],
-      [53, 'Biomechanics and Wear in Joint Arthroplasty'],
-      [54, 'Periprosthetic Joint Infections'],
-      [55, 'Periprosthetic Fractures Associated With Total Hip and Knee Arthroplasty'],
-      [12, 'Anatomy of the Spine'],
-      [13, 'Physical Examination of the Spine'],
-      [14, 'Diagnostics and Nonsurgical Treatment of Spinal Disorders'],
-      [15, 'Degenerative Conditions of the Cervical Spine'],
-      [16, 'Degenerative Conditions of the Lumbar Spine'],
-      [17, 'Adult Spinal Deformity'],
-      [18, 'Infections of the Spine'],
-      [19, 'Spinal Trauma'],
-    ]
-  },
-  {
-    num: 13, start: '2026-06-13', end: '2026-06-18',
-    focus: 'Section 2 Spine, Clear Remaining Banks',
-    checkpoint: { rs: 'clear', v3: 'clear', ch: 151 },
-    v3focus: '152 Spine, all remaining companion questions',
-    chapters: [
-      [20, 'Assessment and Treatment of Osteoporosis and Vertebral Fractures'],
-      [21, 'Inflammatory Diseases of the Spine'],
-      [22, 'Minimally Invasive Spine Surgery'],
-    ]
-  },
+  { num: 1, start: '2026-03-21', end: '2026-03-27', focus: 'Section 6 Shoulder and Elbow', checkpoint: { rs: 280, v3: 35, ch: 9 }, v3focus: '156 Shoulder and Elbow', chapters: [[70,'Anatomy of the Shoulder, Arm, and Elbow'],[71,'Physical Examination of the Shoulder and Elbow'],[72,'Imaging of the Shoulder and Elbow'],[73,'Rotator Cuff Tears and Cuff Tear Arthropathy'],[74,'Traumatic Shoulder Instability'],[75,'Multidirectional Instability'],[76,'Adhesive Capsulitis'],[77,'Arthritis and Arthroplasty of the Shoulder'],[78,'Complications in Primary and Revision Shoulder Arthroplasty']] },
+  { num: 2, start: '2026-03-28', end: '2026-04-03', focus: 'Section 6 Shoulder/Elbow, Section 10 Pediatrics', checkpoint: { rs: 560, v3: 70, ch: 21 }, v3focus: '156 Shoulder and Elbow, 160 Pediatrics', chapters: [[79,'Disorders of the Acromioclavicular Joint'],[80,'Disorders of the Sternoclavicular Joint'],[81,'Superior Labrum Anterior to Posterior Tears and Lesions of the Proximal Biceps Tendon'],[82,'Lateral and Medial Epicondylitis'],[83,'Elbow Stiffness'],[84,'Acute and Recurrent Elbow Instability'],[85,'Arthritis and Arthroplasty of the Elbow'],[86,'Distal Biceps and Triceps Tendon Injuries'],[87,'Elbow Injuries in the Athlete'],[88,'Disorders of the Scapula'],[132,'Skeletal Dysplasias and Mucopolysaccharidoses'],[133,'Pediatric Musculoskeletal Disorders and Syndromes']] },
+  { num: 3, start: '2026-04-04', end: '2026-04-10', focus: 'Section 10 Pediatrics, Section 11 Oncology', checkpoint: { rs: 840, v3: 105, ch: 33 }, v3focus: '160 Pediatrics, 161 Oncology', chapters: [[134,'Pediatric Neuromuscular Disorders'],[135,'Musculoskeletal Infection in Children and Adolescents'],[136,'The Pediatric Hip'],[137,'Pediatric Foot Conditions'],[138,'Pediatric Lower Extremity Deformities and Limb Deficiencies'],[139,'Limb Deformity Analysis'],[140,'Musculoskeletal Conditions and Injuries in the Young Athlete'],[141,'Pediatric Polytrauma and Upper Extremity Fractures'],[142,'Pediatric Pelvic and Lower Extremity Fractures'],[143,'Pediatric Spine'],[144,'Overview of Orthopaedic Oncology and Systemic Disease'],[145,'Treatment Modalities for Musculoskeletal Tumors']] },
+  { num: 4, start: '2026-04-11', end: '2026-04-17', focus: 'Section 11 Oncology, Section 3 Hand and Wrist', checkpoint: { rs: 1120, v3: 140, ch: 45 }, v3focus: '161 Oncology, 153 Hand and Wrist', chapters: [[146,'Benign Bone Tumors and Reactive Lesions'],[147,'Malignant Bone Tumors'],[148,'Benign Soft-Tissue Tumors and Reactive Lesions'],[149,'Malignant Soft-Tissue Tumors'],[150,'Metastatic Bone Disease'],[151,'Metabolic Bone and Inflammatory Joint Disease'],[23,'Anatomy of the Hand and Wrist'],[24,'Imaging of the Hand and Wrist'],[25,'Pediatric Hand and Wrist'],[26,'Arthritides of the Hand and Wrist'],[27,'Tendinopathy of the Hand and Wrist'],[28,'Dupuytren Disease']] },
+  { num: 5, start: '2026-04-18', end: '2026-04-24', focus: 'Section 3 Hand and Wrist', checkpoint: { rs: 1400, v3: 175, ch: 58 }, v3focus: '153 Hand and Wrist', chapters: [[29,'Carpal Instability'],[30,'Replantation'],[31,'Flexor and Extensor Tendon Injuries'],[32,'Nerve Anatomy and Repair'],[33,'Nerve Compression Syndromes'],[34,'Traumatic Brachial Plexus Injuries'],[35,'Nerve Transfers'],[36,'Tendon Transfers for Peripheral Nerve Injuries in the Upper Extremity'],[37,'Infections of the Hand'],[38,'Tumors of the Hand and Wrist'],[39,'Soft-Tissue Coverage'],[40,'Sports Injuries of the Hand and Wrist'],[41,'Disorders of the Upper Extremity']] },
+  { num: 6, start: '2026-04-25', end: '2026-05-01', focus: 'Section 7 Trauma', checkpoint: { rs: 1680, v3: 210, ch: 70 }, v3focus: '157 Trauma', chapters: [[89,'Evaluation of the Patient With Trauma'],[90,'Fracture Healing and the Biomechanics of Fracture Fixation'],[91,'Soft-Tissue Injuries, Open Fractures, and Acute Compartment Syndrome'],[92,'Nonunions and Malunions'],[93,'Fracture-Related Infections'],[94,'Fractures of the Clavicle, Scapula, and Glenoid'],[95,'Proximal Humerus Fractures'],[96,'Fractures of the Humeral Shaft'],[97,'Fractures of the Distal Humerus'],[98,'Elbow Fractures and Fracture-Dislocations'],[99,'Forearm and Distal Radius Fractures'],[100,'Fractures: Hand and Carpus']] },
+  { num: 7, start: '2026-05-02', end: '2026-05-08', focus: 'Section 7 Trauma, Section 1 General Knowledge', checkpoint: { rs: 1960, v3: 245, ch: 83 }, v3focus: '157 Trauma, mixed carryover', chapters: [[101,'Pelvic Fractures'],[102,'Acetabular Fractures, Hip Dislocation, and Femoral Head Fractures'],[103,'Fractures of the Proximal Femur'],[104,'Femoral Shaft Fractures and Atypical Femur Fractures'],[105,'Fractures of the Distal Femur'],[106,'Patellar Fractures and Extensor Mechanism Disruption'],[107,'Knee Dislocation and Tibial Plateau Fracture'],[108,'Tibial Shaft Fractures'],[109,'Fractures of the Ankle'],[110,'Pilon Fractures'],[111,'Foot Fractures and Fracture-Dislocations'],[1,'Musculoskeletal Imaging'],[2,'Preoperative Optimization and Perioperative Medical Comanagement']] },
+  { num: 8, start: '2026-05-09', end: '2026-05-15', focus: 'Section 1 General Knowledge, Section 5 Basic Science', checkpoint: { rs: 2240, v3: 280, ch: 96 }, v3focus: '155 Basic Science, mixed carryover', chapters: [[3,'Coagulation and Thromboembolism'],[4,'Normal and Pathologic Gait'],[5,'Orthoses, Amputations, and Prostheses'],[6,'Occupational Health/Work-Related Injury and Illness'],[7,'Anesthesiology'],[8,'Neuro-Orthopaedics and Rehabilitation'],[9,'Medicolegal Issues'],[10,'Medical Ethics'],[11,'Health Care Disparities'],[56,'Orthopaedic Molecular and Cellular Biology, Genetics, and Immunology'],[57,'Skeletal Development'],[58,'Musculoskeletal Infections and Microbiology'],[59,'Biomechanics']] },
+  { num: 9, start: '2026-05-16', end: '2026-05-22', focus: 'Section 5 Basic Science, Section 8 Foot and Ankle', checkpoint: { rs: 2520, v3: 315, ch: 109 }, v3focus: '155 Basic Science, 158 Foot and Ankle', chapters: [[60,'Principles of Regenerative Medicine in Orthopaedics: Biologics, Biomaterials, and New Frontiers'],[61,'Bone and Joint Biology'],[62,'Bone, Fracture Healing, and Nonunions'],[63,'Articular Cartilage and Osteoarthritis'],[64,'Tendons and Ligaments'],[65,'Peripheral Nervous System'],[66,'Skeletal Muscle'],[67,'Intervertebral Disk'],[68,'Statistics: Practical Applications for Orthopaedics'],[69,'Evidence-Based Medicine'],[112,'Anatomy and Biomechanics of the Foot and Ankle'],[113,'Disorders of the First Ray'],[114,'Forefoot Disorders']] },
+  { num: 10, start: '2026-05-23', end: '2026-05-29', focus: 'Section 8 Foot/Ankle, Section 9 Sports Medicine', checkpoint: { rs: 2800, v3: 350, ch: 123 }, v3focus: '158 Foot and Ankle, 159 Sports Medicine', chapters: [[115,'Sports Injuries of the Ankle'],[116,'Arthritides of the Foot and Ankle'],[117,'Tendon Disorders of the Foot and Ankle'],[118,'Heel Pain'],[119,'Neurologic Disorders of the Foot and Ankle'],[120,'The Diabetic Foot and Ankle'],[121,'Tumors and Infections of the Foot and Ankle'],[122,'Complex Foot and Ankle Deformities'],[123,'Anatomy and Biomechanics of the Knee'],[124,'Extensor Mechanism Injuries'],[125,'Ligamentous Injuries of the Knee'],[126,'Meniscal Injuries'],[127,'Articular Cartilage Injury and Treatment'],[128,'Orthobiologics in Sports Medicine']] },
+  { num: 11, start: '2026-05-30', end: '2026-06-05', focus: 'Section 9 Sports Medicine, Section 4 Hip and Knee', checkpoint: { rs: 3080, v3: 385, ch: 135 }, v3focus: '159 Sports Medicine, 154 Total Joint Preservation and Arthroplasty', chapters: [[129,'Concussion and Common Neurologic Sports Injuries'],[130,'Medical Aspects of Sports Participation'],[131,'Prevention and Rehabilitation of Sports Injuries'],[42,'General Evaluation of the Hip Patient'],[43,'Radiographic Evaluation of the Hip'],[44,'Surgical Anatomy of the Hip'],[45,'Nonarthroplasty Surgical Treatment of the Hip'],[46,'Primary Hip Arthroplasty'],[47,'Revision Total Hip Arthroplasty'],[48,'General Evaluation of the Knee Patient'],[49,'Radiographic Evaluation and Surgical Anatomy of the Knee'],[50,'Nonarthroplasty Surgical Treatment of the Knee']] },
+  { num: 12, start: '2026-06-06', end: '2026-06-12', focus: 'Section 4 Hip/Knee, Section 2 Spine', checkpoint: { rs: 3360, v3: 420, ch: 148 }, v3focus: '154 Total Joint Preservation and Arthroplasty, 152 Spine', chapters: [[51,'Primary Knee Arthroplasty'],[52,'Revision Total Knee Arthroplasty'],[53,'Biomechanics and Wear in Joint Arthroplasty'],[54,'Periprosthetic Joint Infections'],[55,'Periprosthetic Fractures Associated With Total Hip and Knee Arthroplasty'],[12,'Anatomy of the Spine'],[13,'Physical Examination of the Spine'],[14,'Diagnostics and Nonsurgical Treatment of Spinal Disorders'],[15,'Degenerative Conditions of the Cervical Spine'],[16,'Degenerative Conditions of the Lumbar Spine'],[17,'Adult Spinal Deformity'],[18,'Infections of the Spine'],[19,'Spinal Trauma']] },
+  { num: 13, start: '2026-06-13', end: '2026-06-18', focus: 'Section 2 Spine, Clear Remaining Banks', checkpoint: { rs: 'clear', v3: 'clear', ch: 151 }, v3focus: '152 Spine, all remaining companion questions', chapters: [[20,'Assessment and Treatment of Osteoporosis and Vertebral Fractures'],[21,'Inflammatory Diseases of the Spine'],[22,'Minimally Invasive Spine Surgery']] },
 ];
 
-const SECTIONS = [
-  'Shoulder/Elbow', 'Pediatrics', 'Oncology', 'Hand/Wrist',
-  'Trauma', 'General Knowledge', 'Basic Science', 'Foot/Ankle',
-  'Sports', 'Hip/Knee', 'Spine'
-];
-
+const SECTIONS = ['Shoulder/Elbow','Pediatrics','Oncology','Hand/Wrist','Trauma','General Knowledge','Basic Science','Foot/Ankle','Sports','Hip/Knee','Spine'];
 const HARD_RULES = [
   'Questions count only if reviewed the same day.',
   'Guessed-right counts as wrong in the error log.',
@@ -884,197 +644,226 @@ const HARD_RULES = [
   'Maximum 1 page of notes per day.',
   'On a bad day, never skip both questions and reading.',
 ];
-
-const DAY_NAMES = ['Sat','Sun','Mon','Tue','Wed','Thu','Fri'];
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 // ============================================================
 // STATE
 // ============================================================
-function loadState() {
-  try { return JSON.parse(localStorage.getItem('aaos_tracker') || '{}'); }
-  catch { return {}; }
-}
-function saveState(s) { localStorage.setItem('aaos_tracker', JSON.stringify(s)); }
+function load() { try { return JSON.parse(localStorage.getItem('aaos_tracker') || '{}'); } catch { return {}; } }
+function save(s) { localStorage.setItem('aaos_tracker', JSON.stringify(s)); }
 
-let state = loadState();
+let state = load();
 if (!state.chapters) state.chapters = {};
 if (!state.daily) state.daily = {};
 if (!state.errorLog) state.errorLog = '';
 if (!state.rsDone) state.rsDone = 0;
 if (!state.v3Done) state.v3Done = 0;
+if (!state.notes) state.notes = {};
 
 // ============================================================
-// RENDER
+// HELPERS
 // ============================================================
+function today() { const d = new Date(); d.setHours(0,0,0,0); return d; }
+function dateKey(d) { return d.toISOString().slice(0,10); }
+
 function getCurrentWeek() {
-  const today = new Date(); today.setHours(0,0,0,0);
+  const t = today();
   for (const w of WEEKS) {
     const s = new Date(w.start); s.setHours(0,0,0,0);
     const e = new Date(w.end); e.setHours(23,59,59,999);
-    if (today >= s && today <= e) return w.num;
+    if (t >= s && t <= e) return w;
   }
-  const start = new Date('2026-03-21');
-  if (today < start) return 1;
-  return 13;
+  if (t < new Date('2026-03-21')) return WEEKS[0];
+  return WEEKS[WEEKS.length - 1];
 }
 
-function getDaysRemaining() {
+function daysLeft() {
   const end = new Date('2026-06-18'); end.setHours(23,59,59,999);
-  const now = new Date();
-  const diff = Math.ceil((end - now) / (1000*60*60*24));
-  return Math.max(0, diff);
+  return Math.max(0, Math.ceil((end - new Date()) / 864e5));
 }
 
-function getElapsedDays() {
-  const start = new Date('2026-03-21'); start.setHours(0,0,0,0);
-  const now = new Date();
-  return Math.max(0, Math.ceil((now - start) / (1000*60*60*24)));
-}
+function checkedCount() { return Object.values(state.chapters).filter(Boolean).length; }
 
-function countCheckedChapters() {
-  return Object.values(state.chapters).filter(v => v).length;
-}
+// ============================================================
+// RENDER: TODAY HERO
+// ============================================================
+function renderToday() {
+  const w = getCurrentWeek();
+  const t = today();
+  const dk = dateKey(t);
+  const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
 
-function renderMetrics() {
-  const dr = getDaysRemaining();
-  const cw = getCurrentWeek();
-  const ch = countCheckedChapters();
-  const pct = Math.round((ch / 151) * 100);
+  document.getElementById('today-date').textContent = t.toLocaleDateString('en-US', opts).toUpperCase();
+  document.getElementById('today-focus').textContent = w.focus;
+  document.getElementById('today-sub').textContent = `Week ${w.num} of 13  //  Day ${Math.max(1, Math.ceil((t - new Date('2026-03-21')) / 864e5) + 1)} of 90`;
 
-  document.getElementById('days-remaining').textContent = dr;
-  document.getElementById('days-sub').textContent = `${90 - dr} of 90 elapsed`;
-  document.getElementById('current-week').textContent = `W${cw}`;
-  const weekData = WEEKS.find(w => w.num === cw);
-  document.getElementById('week-focus-sub').textContent = weekData ? weekData.focus : '';
-  document.getElementById('chapters-done').textContent = ch;
-  document.getElementById('completion-pct').textContent = pct + '%';
-  document.getElementById('completion-sub').textContent = `${ch} / 151 chapters`;
+  // Stats
+  const ch = checkedCount();
+  document.getElementById('s-days').textContent = daysLeft();
+  document.getElementById('s-week').textContent = w.num;
+  document.getElementById('s-ch').textContent = ch;
+  document.getElementById('s-rs').textContent = state.rsDone || 0;
+  document.getElementById('s-v3').textContent = state.v3Done || 0;
+  document.getElementById('s-pct').textContent = Math.round((ch / 151) * 100) + '%';
+
+  // Question targets
+  const cpRs = typeof w.checkpoint.rs === 'number' ? w.checkpoint.rs : 'clear';
+  const cpV3 = typeof w.checkpoint.v3 === 'number' ? w.checkpoint.v3 : 'clear';
+  document.getElementById('today-q-targets').innerHTML = `
+    <div class="q-row">
+      <div class="q-label">ResStudy checkpoint (end of week)</div>
+      <div class="q-value accent">${cpRs}</div>
+    </div>
+    <div class="q-row">
+      <div class="q-label">Volume 3 checkpoint (end of week)</div>
+      <div class="q-value warn">${cpV3}</div>
+    </div>
+  `;
+  document.getElementById('today-v3-text').textContent = w.v3focus;
+
+  // Chapters
+  const done = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
+  document.getElementById('today-ch-count').textContent = `${done} / ${w.chapters.length}`;
+
+  document.getElementById('today-ch-list').innerHTML = w.chapters.map(([num, title]) => {
+    const key = `ch_${num}`;
+    const isDone = state.chapters[key];
+    return `
+      <div class="ch-item ${isDone ? 'done' : ''}" onclick="toggleCh('${key}', this)">
+        <div class="ch-box ${isDone ? 'on' : ''}"></div>
+        <div class="ch-num">${num}</div>
+        <div class="ch-title">${title}</div>
+      </div>`;
+  }).join('');
+
+  // Notes canvas
+  const noteKey = `note_w${w.num}`;
+  const canvas = document.getElementById('note-canvas');
+  canvas.value = state.notes[noteKey] || '';
+  canvas.setAttribute('data-key', noteKey);
+
+  // Daily strip for this week
+  const start = new Date(w.start);
+  const end = new Date(w.end);
+  const days = [];
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+
+  document.getElementById('today-daily-grid').innerHTML = days.map(d => {
+    const k = dateKey(d);
+    const isToday = d.getTime() === t.getTime();
+    const dd = state.daily[k] || {};
+    return `
+      <div class="ds-cell ${isToday ? 'today' : ''}">
+        <div class="ds-day">${DAY_NAMES[d.getDay()]}</div>
+        <div class="ds-date">${d.getDate()}</div>
+        <input class="ds-input" placeholder="RS" value="${dd.rs || ''}" onchange="updateDaily('${k}','rs',this.value)">
+        <input class="ds-input" placeholder="V3" value="${dd.v3 || ''}" onchange="updateDaily('${k}','v3',this.value)">
+        <input class="ds-input" placeholder="Ch" value="${dd.ch || ''}" onchange="updateDaily('${k}','ch',this.value)">
+      </div>`;
+  }).join('');
 
   // Progress bars
-  document.getElementById('rs-done').textContent = state.rsDone || 0;
-  document.getElementById('rs-bar').style.width = Math.min(100, ((state.rsDone||0) / 3360) * 100) + '%';
-  document.getElementById('v3-done').textContent = state.v3Done || 0;
-  document.getElementById('v3-bar').style.width = Math.min(100, ((state.v3Done||0) / 420) * 100) + '%';
-  document.getElementById('ch-done').textContent = ch;
-  document.getElementById('ch-bar').style.width = Math.min(100, (ch / 151) * 100) + '%';
+  document.getElementById('p-rs').textContent = state.rsDone || 0;
+  document.getElementById('p-rs-bar').style.width = Math.min(100, ((state.rsDone || 0) / 3360) * 100) + '%';
+  document.getElementById('p-v3').textContent = state.v3Done || 0;
+  document.getElementById('p-v3-bar').style.width = Math.min(100, ((state.v3Done || 0) / 420) * 100) + '%';
+  document.getElementById('p-ch').textContent = ch;
+  document.getElementById('p-ch-bar').style.width = Math.min(100, (ch / 151) * 100) + '%';
 }
 
+// ============================================================
+// RENDER: WEEKS
+// ============================================================
 function renderWeeks() {
-  const container = document.getElementById('weeks-container');
-  const cw = getCurrentWeek();
-  container.innerHTML = WEEKS.map(w => {
+  const cw = getCurrentWeek().num;
+  document.getElementById('weeks-container').innerHTML = WEEKS.map(w => {
     const isCurrent = w.num === cw;
-    const chaptersHtml = w.chapters.map(([num, title]) => {
+    const chs = w.chapters.map(([num, title]) => {
       const key = `ch_${num}`;
       const done = state.chapters[key];
       return `
-        <div class="chapter-item ${done ? 'done' : ''}" data-key="${key}">
-          <div class="chapter-check ${done ? 'checked' : ''}" onclick="toggleChapter('${key}', this)"></div>
-          <div class="chapter-num">${num}</div>
-          <div class="chapter-title">${title}</div>
+        <div class="wk-ch ${done ? 'done' : ''}" data-key="${key}">
+          <div class="wk-ch-box ${done ? 'on' : ''}" onclick="event.stopPropagation();toggleCh('${key}',this.closest('.wk-ch'))"></div>
+          <div class="wk-ch-num">${num}</div>
+          <div class="wk-ch-title">${title}</div>
         </div>`;
     }).join('');
-
-    const cpRs = typeof w.checkpoint.rs === 'number' ? w.checkpoint.rs : 'clear';
-    const cpV3 = typeof w.checkpoint.v3 === 'number' ? w.checkpoint.v3 : 'clear';
-    const cpCh = w.checkpoint.ch;
-
+    const cpRs = typeof w.checkpoint.rs === 'number' ? w.checkpoint.rs : 'clr';
+    const cpV3 = typeof w.checkpoint.v3 === 'number' ? w.checkpoint.v3 : 'clr';
     return `
-      <div class="week-card ${isCurrent ? 'current' : ''}" id="week-${w.num}">
-        <div class="week-header" onclick="toggleWeek(${w.num})">
-          <div class="week-header-left">
-            <div class="week-number">W${w.num}</div>
-            <div class="week-focus">${w.focus}</div>
-            <div class="week-dates">${w.start} \u2192 ${w.end}</div>
+      <div class="wk-card ${isCurrent ? 'current' : ''}" id="wk-${w.num}">
+        <div class="wk-head" onclick="document.getElementById('wk-${w.num}').classList.toggle('open')">
+          <div class="wk-head-left">
+            <div class="wk-num">W${w.num}</div>
+            <div class="wk-focus">${w.focus}</div>
+            <div class="wk-dates">${w.start} \u2192 ${w.end}</div>
           </div>
-          <div class="week-header-right">
-            <div class="week-targets">
-              <span>RS:${cpRs}</span>
-              <span>V3:${cpV3}</span>
-              <span>Ch:${cpCh}</span>
-            </div>
+          <div class="wk-head-right">
+            <div class="wk-targets"><span>RS:${cpRs}</span><span>V3:${cpV3}</span><span>Ch:${w.checkpoint.ch}</span></div>
             <div class="chevron">\u25BC</div>
           </div>
         </div>
-        <div class="week-body">
-          <div class="chapter-group-title">Vol 3 Focus: ${w.v3focus}</div>
-          <div class="chapter-group-title">Chapters (${w.chapters.length})</div>
-          ${chaptersHtml}
+        <div class="wk-body">
+          <div class="wk-section-label">Vol 3: ${w.v3focus}</div>
+          <div class="wk-section-label">Chapters (${w.chapters.length})</div>
+          ${chs}
         </div>
       </div>`;
   }).join('');
-
-  // Auto-open current week
-  const currentCard = document.getElementById(`week-${cw}`);
-  if (currentCard) currentCard.classList.add('open');
+  const cur = document.getElementById(`wk-${cw}`);
+  if (cur) cur.classList.add('open');
 }
 
-function renderDaily() {
-  const container = document.getElementById('daily-weeks-container');
-  container.innerHTML = WEEKS.map(w => {
+// ============================================================
+// RENDER: DAILY LOG
+// ============================================================
+function renderDailyLog() {
+  const t = today();
+  document.getElementById('daily-log-container').innerHTML = WEEKS.map(w => {
     const start = new Date(w.start);
     const end = new Date(w.end);
     const days = [];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
-      days.push(new Date(d));
-    }
-    const today = new Date(); today.setHours(0,0,0,0);
-
-    const dayCells = days.map(d => {
-      const key = d.toISOString().slice(0,10);
-      const isToday = d.getTime() === today.getTime();
-      const dayData = state.daily[key] || {};
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(new Date(d));
+    const cells = days.map(d => {
+      const k = dateKey(d);
+      const isToday = d.getTime() === t.getTime();
+      const dd = state.daily[k] || {};
       return `
-        <div class="day-cell ${isToday ? 'today' : ''}">
-          <div class="day-label">${DAY_NAMES[d.getDay()]}</div>
-          <div class="day-date">${d.getDate()}</div>
-          <div class="day-inputs">
-            <input class="day-input" placeholder="RS" value="${dayData.rs || ''}"
-              onchange="updateDaily('${key}','rs',this.value)" title="ResStudy questions">
-            <input class="day-input" placeholder="V3" value="${dayData.v3 || ''}"
-              onchange="updateDaily('${key}','v3',this.value)" title="Volume 3 questions">
-            <input class="day-input" placeholder="Ch" value="${dayData.ch || ''}"
-              onchange="updateDaily('${key}','ch',this.value)" title="Chapters read">
-          </div>
+        <div class="dl-cell ${isToday ? 'today' : ''}">
+          <div class="dl-day">${DAY_NAMES[d.getDay()]}</div>
+          <div class="dl-date">${d.getDate()}</div>
+          <input class="dl-input" placeholder="RS" value="${dd.rs || ''}" onchange="updateDaily('${k}','rs',this.value)">
+          <input class="dl-input" placeholder="V3" value="${dd.v3 || ''}" onchange="updateDaily('${k}','v3',this.value)">
+          <input class="dl-input" placeholder="Ch" value="${dd.ch || ''}" onchange="updateDaily('${k}','ch',this.value)">
         </div>`;
     }).join('');
-
+    const cpRs = typeof w.checkpoint.rs === 'number' ? w.checkpoint.rs : 'clear';
+    const cpV3 = typeof w.checkpoint.v3 === 'number' ? w.checkpoint.v3 : 'clear';
     return `
-      <div class="rule-section">
-        <div class="rule-section-title">Week ${w.num} \u2014 ${w.focus}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;font-family:'JetBrains Mono',monospace;">
-          ${w.start} \u2192 ${w.end} &nbsp; | &nbsp; Checkpoint: RS=${typeof w.checkpoint.rs==='number'?w.checkpoint.rs:'clear'} V3=${typeof w.checkpoint.v3==='number'?w.checkpoint.v3:'clear'} Ch=${w.checkpoint.ch}
-        </div>
-        <div class="daily-grid">${dayCells}</div>
+      <div class="dl-week">
+        <div class="dl-week-title">Week ${w.num} &mdash; ${w.focus}</div>
+        <div class="dl-week-meta">${w.start} \u2192 ${w.end} &nbsp;|&nbsp; Checkpoint: RS=${cpRs} V3=${cpV3} Ch=${w.checkpoint.ch}</div>
+        <div class="dl-grid">${cells}</div>
       </div>`;
   }).join('');
 }
 
+// ============================================================
+// RENDER: RULES
+// ============================================================
 function renderRules() {
-  // Hard rules
   document.getElementById('hard-rules').innerHTML = HARD_RULES.map(r => `
-    <div class="rule-item">
-      <div class="rule-bullet"></div>
-      <div class="rule-text">${r}</div>
-    </div>`).join('');
+    <div class="rule-item"><div class="rule-dot"></div><div class="rule-text">${r}</div></div>`).join('');
 
-  // Section order
-  const cw = getCurrentWeek();
-  // Map weeks to sections being covered
-  const sectionWeekMap = {
-    'Shoulder/Elbow': [1,2], 'Pediatrics': [2,3], 'Oncology': [3,4],
-    'Hand/Wrist': [4,5], 'Trauma': [6,7], 'General Knowledge': [7,8],
-    'Basic Science': [8,9], 'Foot/Ankle': [9,10], 'Sports': [10,11],
-    'Hip/Knee': [11,12], 'Spine': [12,13]
-  };
-
+  const cw = getCurrentWeek().num;
+  const swm = { 'Shoulder/Elbow':[1,2],'Pediatrics':[2,3],'Oncology':[3,4],'Hand/Wrist':[4,5],'Trauma':[6,7],'General Knowledge':[7,8],'Basic Science':[8,9],'Foot/Ankle':[9,10],'Sports':[10,11],'Hip/Knee':[11,12],'Spine':[12,13] };
   document.getElementById('section-order').innerHTML = SECTIONS.map((s, i) => {
-    const weeks = sectionWeekMap[s] || [];
-    const isActive = weeks.includes(cw);
-    const isCompleted = weeks.length > 0 && weeks[weeks.length - 1] < cw;
-    const cls = isActive ? 'active' : (isCompleted ? 'completed' : '');
-    const arrow = i < SECTIONS.length - 1 ? '<span class="section-arrow">\u2192</span>' : '';
-    return `<div class="section-pill ${cls}"><span class="num">${i+1}</span>${s}</div>${arrow}`;
+    const wks = swm[s] || [];
+    const isNow = wks.includes(cw);
+    const isDone = wks.length > 0 && wks[wks.length - 1] < cw;
+    const cls = isNow ? 'now' : (isDone ? 'done' : '');
+    const arrow = i < SECTIONS.length - 1 ? '<span class="s-arrow">\u2192</span>' : '';
+    return `<div class="s-pill ${cls}"><span class="n">${i+1}</span>${s}</div>${arrow}`;
   }).join('');
 }
 
@@ -1085,41 +874,30 @@ function renderErrorLog() {
 // ============================================================
 // ACTIONS
 // ============================================================
-function toggleChapter(key, el) {
+function toggleCh(key, el) {
   state.chapters[key] = !state.chapters[key];
-  saveState(state);
-  el.classList.toggle('checked');
-  el.closest('.chapter-item').classList.toggle('done');
-  renderMetrics();
+  save(state);
+  renderToday();
+  renderWeeks();
 }
 
-function toggleWeek(num) {
-  document.getElementById(`week-${num}`).classList.toggle('open');
-}
-
-function updateDaily(dateKey, field, value) {
-  if (!state.daily[dateKey]) state.daily[dateKey] = {};
-  state.daily[dateKey][field] = value;
-  // Recalculate totals
-  let totalRs = 0, totalV3 = 0;
-  Object.values(state.daily).forEach(d => {
-    totalRs += parseInt(d.rs) || 0;
-    totalV3 += parseInt(d.v3) || 0;
-  });
-  state.rsDone = totalRs;
-  state.v3Done = totalV3;
-  saveState(state);
-  renderMetrics();
+function updateDaily(dk, field, value) {
+  if (!state.daily[dk]) state.daily[dk] = {};
+  state.daily[dk][field] = value;
+  let rs = 0, v3 = 0;
+  Object.values(state.daily).forEach(d => { rs += parseInt(d.rs) || 0; v3 += parseInt(d.v3) || 0; });
+  state.rsDone = rs;
+  state.v3Done = v3;
+  save(state);
+  renderToday();
 }
 
 function exportData() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `aaos-tracker-${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const a = document.createElement('a'); a.href = url;
+  a.download = `aaos-tracker-${dateKey(new Date())}.json`;
+  a.click(); URL.revokeObjectURL(url);
 }
 
 function importData(event) {
@@ -1128,38 +906,41 @@ function importData(event) {
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
-      const imported = JSON.parse(e.target.result);
-      if (imported.chapters || imported.daily) {
-        state = imported;
+      const imp = JSON.parse(e.target.result);
+      if (imp.chapters || imp.daily) {
+        state = imp;
         if (!state.chapters) state.chapters = {};
         if (!state.daily) state.daily = {};
         if (!state.errorLog) state.errorLog = '';
         if (!state.rsDone) state.rsDone = 0;
         if (!state.v3Done) state.v3Done = 0;
-        saveState(state);
-        renderAll();
-        alert('Data imported successfully.');
-      } else {
-        alert('Invalid file format.');
-      }
-    } catch { alert('Failed to parse file.'); }
+        if (!state.notes) state.notes = {};
+        save(state); renderAll();
+        alert('Data imported.');
+      } else { alert('Invalid file.'); }
+    } catch { alert('Failed to parse.'); }
   };
   reader.readAsText(file);
   event.target.value = '';
 }
 
 function resetAll() {
-  if (confirm('Reset all tracked progress? This cannot be undone.')) {
+  if (confirm('Reset all tracked progress? Cannot be undone.')) {
     localStorage.removeItem('aaos_tracker');
-    state = { chapters: {}, daily: {}, errorLog: '', rsDone: 0, v3Done: 0 };
+    state = { chapters: {}, daily: {}, errorLog: '', rsDone: 0, v3Done: 0, notes: {} };
     renderAll();
   }
 }
 
+// Note canvas auto-save
+document.getElementById('note-canvas').addEventListener('input', function() {
+  const key = this.getAttribute('data-key');
+  if (key) { state.notes[key] = this.value; save(state); }
+});
+
 // Error log auto-save
-document.getElementById('error-log-text')?.addEventListener('input', function() {
-  state.errorLog = this.value;
-  saveState(state);
+document.getElementById('error-log-text').addEventListener('input', function() {
+  state.errorLog = this.value; save(state);
 });
 
 // Tabs
@@ -1176,9 +957,9 @@ document.querySelectorAll('.tab').forEach(tab => {
 // INIT
 // ============================================================
 function renderAll() {
-  renderMetrics();
+  renderToday();
   renderWeeks();
-  renderDaily();
+  renderDailyLog();
   renderRules();
   renderErrorLog();
 }
