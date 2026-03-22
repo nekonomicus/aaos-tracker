@@ -234,6 +234,64 @@
     font-weight: 600; padding: 8px 0; text-align: center;
   }
 
+  /* LOG TODAY */
+  .log-today {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 4px; padding: 24px; margin-bottom: 32px;
+  }
+  .log-today-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .log-today-title {
+    font-size: 11px; font-weight: 600; color: var(--accent);
+    letter-spacing: 3px; text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .log-today-day {
+    font-size: 11px; color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .slider-row {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 0;
+  }
+  .slider-row + .slider-row { border-top: 1px solid var(--border); }
+  .slider-label {
+    font-size: 12px; color: var(--text-dim); width: 120px; flex-shrink: 0;
+  }
+  .slider-wrap { flex: 1; position: relative; }
+  .slider-input {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 4px; background: var(--border);
+    border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 18px; height: 18px; border-radius: 50%;
+    cursor: pointer; border: 2px solid #000;
+  }
+  .slider-input.accent-slider::-webkit-slider-thumb { background: var(--accent); }
+  .slider-input.warn-slider::-webkit-slider-thumb { background: var(--warn); }
+  .slider-input::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    cursor: pointer; border: 2px solid #000;
+  }
+  .slider-input.accent-slider::-moz-range-thumb { background: var(--accent); }
+  .slider-input.warn-slider::-moz-range-thumb { background: var(--warn); }
+  .slider-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px; font-weight: 700; width: 56px;
+    text-align: right; flex-shrink: 0;
+  }
+  .slider-val.accent { color: var(--accent); }
+  .slider-val.warn { color: var(--warn); }
+  .slider-max {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: var(--text-muted); width: 40px; text-align: right;
+    flex-shrink: 0;
+  }
+
   /* NOTE CANVAS */
   .note-canvas {
     width: 100%; min-height: 300px;
@@ -565,6 +623,35 @@
     </div>
   </div>
 
+  <!-- ===== LOG TODAY: SLIDERS + TARGETS ===== -->
+  <div class="log-today" id="log-today">
+    <div class="log-today-head">
+      <div class="log-today-title">Log Today</div>
+      <div class="log-today-day" id="log-today-day"></div>
+    </div>
+    <div class="slider-row">
+      <div class="slider-label">ResStudy Qs</div>
+      <div class="slider-wrap">
+        <input type="range" class="slider-input accent-slider" id="slider-rs" min="0" max="60" value="0"
+          oninput="onSlider('rs', this.value)">
+      </div>
+      <div class="slider-val accent" id="slider-rs-val">0</div>
+      <div class="slider-max">/ 60</div>
+    </div>
+    <div class="slider-row">
+      <div class="slider-label">Volume 3 Qs</div>
+      <div class="slider-wrap">
+        <input type="range" class="slider-input warn-slider" id="slider-v3" min="0" max="20" value="0"
+          oninput="onSlider('v3', this.value)">
+      </div>
+      <div class="slider-val warn" id="slider-v3-val">0</div>
+      <div class="slider-max">/ 20</div>
+    </div>
+    <div id="log-today-targets">
+      <!-- daily targets rendered here -->
+    </div>
+  </div>
+
   <!-- ===== TODAY GRID: CHAPTERS + NOTES ===== -->
   <div class="today-grid">
     <!-- LEFT: chapters to read -->
@@ -574,9 +661,6 @@
         <div class="panel-count" id="today-ch-count"></div>
       </div>
       <div class="q-targets" id="today-q-targets">
-        <!-- filled by JS -->
-      </div>
-      <div class="daily-targets" id="today-daily-targets">
         <!-- filled by JS -->
       </div>
       <div class="v3-focus" id="today-v3">Vol 3: <span id="today-v3-text"></span></div>
@@ -814,7 +898,7 @@ function renderToday() {
   const allDone = remainRs === 0 && remainV3 === 0 && remainCh === 0;
 
   if (allDone) {
-    document.getElementById('today-daily-targets').innerHTML = `
+    document.getElementById('log-today-targets').innerHTML = `
       <div class="dt-header">Today's Targets</div>
       <div class="dt-done-msg">WEEK ${w.num} TARGETS MET</div>
     `;
@@ -835,7 +919,7 @@ function renderToday() {
     const heavyV3 = Math.min(10, Math.ceil(remainV3 / Math.max(1, Math.floor(dLeft / 2))));
     const heavyCh = Math.min(2, Math.ceil(remainCh / Math.max(1, Math.floor(dLeft / 2))));
 
-    document.getElementById('today-daily-targets').innerHTML = `
+    document.getElementById('log-today-targets').innerHTML = `
       <div class="dt-header">Today's Targets &mdash; ${dLeft} day${dLeft > 1 ? 's' : ''} left this week</div>
       <div class="dt-grid">
         <div class="dt-card rescue">
@@ -862,6 +946,16 @@ function renderToday() {
       </div>
     `;
   }
+
+  // Slider init: load today's values
+  document.getElementById('log-today-day').textContent = t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+  const todayData = state.daily[dk] || {};
+  const sliderRs = document.getElementById('slider-rs');
+  const sliderV3 = document.getElementById('slider-v3');
+  sliderRs.value = todayData.rs || 0;
+  sliderV3.value = todayData.v3 || 0;
+  document.getElementById('slider-rs-val').textContent = todayData.rs || 0;
+  document.getElementById('slider-v3-val').textContent = todayData.v3 || 0;
 
   // Chapters
   const done = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
@@ -1021,6 +1115,12 @@ function toggleCh(key, el) {
   save(state);
   renderToday();
   renderWeeks();
+}
+
+function onSlider(field, value) {
+  const dk = dateKey(today());
+  document.getElementById(`slider-${field}-val`).textContent = value;
+  updateDaily(dk, field, value);
 }
 
 function updateDaily(dk, field, value) {
