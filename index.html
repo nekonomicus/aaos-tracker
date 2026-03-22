@@ -461,6 +461,9 @@
   <div class="topbar-right">
     <div class="topbar-stat">START <span>2026-03-21</span></div>
     <div class="topbar-stat">END <span>2026-06-18</span></div>
+    <button class="reset-btn" onclick="exportData()" style="border-color:var(--accent);color:var(--accent);">EXPORT</button>
+    <button class="reset-btn" onclick="document.getElementById('import-file').click()">IMPORT</button>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
     <button class="reset-btn" onclick="resetAll()">RESET DATA</button>
   </div>
 </div>
@@ -1107,6 +1110,42 @@ function updateDaily(dateKey, field, value) {
   state.v3Done = totalV3;
   saveState(state);
   renderMetrics();
+}
+
+function exportData() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `aaos-tracker-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (imported.chapters || imported.daily) {
+        state = imported;
+        if (!state.chapters) state.chapters = {};
+        if (!state.daily) state.daily = {};
+        if (!state.errorLog) state.errorLog = '';
+        if (!state.rsDone) state.rsDone = 0;
+        if (!state.v3Done) state.v3Done = 0;
+        saveState(state);
+        renderAll();
+        alert('Data imported successfully.');
+      } else {
+        alert('Invalid file format.');
+      }
+    } catch { alert('Failed to parse file.'); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
 }
 
 function resetAll() {
