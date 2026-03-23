@@ -220,10 +220,17 @@
     overflow: hidden;
   }
   .tb-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
-  .tb-week-left {
+  .tb-section-label {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 10px; color: var(--text-muted);
-    padding-top: 8px; border-top: 1px solid var(--border); margin-top: 4px;
+    font-size: 9px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 3px; text-transform: uppercase;
+    padding: 10px 0 6px; margin-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+  .tb-section-label:first-of-type { border-top: none; margin-top: 0; }
+  .tb-section-sub {
+    font-weight: 400; color: var(--text-muted); letter-spacing: 1px;
+    opacity: 0.6; margin-left: 8px;
   }
 
   /* TODAY CHAPTERS (inside log-today) */
@@ -1100,6 +1107,7 @@ function renderToday() {
       <div class="ts-label">${todayDone ? 'DONE FOR TODAY' : 'KEEP GOING'}</div>
       <div class="ts-pct">${overallPct}% overall</div>
     </div>
+    <div class="tb-section-label">TODAY</div>
     <div class="today-bars">
       <div class="tb-row">
         <div class="tb-name">RS</div>
@@ -1111,13 +1119,25 @@ function renderToday() {
         <div class="tb-nums ${v3Ok ? 'ok' : ''}">${todayV3} / ${stdV3}</div>
         ${bar(todayV3, stdV3, 'warn')}
       </div>` : ''}
+    </div>
+    <div class="tb-section-label">THIS WEEK <span class="tb-section-sub">${dLeft} day${dLeft > 1 ? 's' : ''} left</span></div>
+    <div class="today-bars">
+      <div class="tb-row">
+        <div class="tb-name">RS</div>
+        <div class="tb-nums ${weekDoneRs >= weekTargetRs ? 'ok' : ''}">${weekDoneRs} / ${weekTargetRs}</div>
+        ${bar(weekDoneRs, weekTargetRs, 'accent')}
+      </div>
+      ${weekTargetV3 > 0 ? `<div class="tb-row">
+        <div class="tb-name">V3</div>
+        <div class="tb-nums ${weekDoneV3 >= weekTargetV3 ? 'ok' : ''}">${weekDoneV3} / ${weekTargetV3}</div>
+        ${bar(weekDoneV3, weekTargetV3, 'warn')}
+      </div>` : ''}
       <div class="tb-row">
         <div class="tb-name">Ch</div>
-        <div class="tb-nums ${chOk ? 'ok' : ''}">${todayCh} / ${w.chapters.length}</div>
-        ${bar(todayCh, w.chapters.length, 'blue')}
+        <div class="tb-nums ${weekDoneCh >= weekTargetCh ? 'ok' : ''}">${weekDoneCh} / ${weekTargetCh}</div>
+        ${bar(weekDoneCh, weekTargetCh, 'blue')}
       </div>
     </div>
-    <div class="tb-week-left">${dLeft} day${dLeft > 1 ? 's' : ''} left &middot; RS ${remainRs} &middot; V3 ${remainV3} &middot; Ch ${remainCh} remaining</div>
   `;
 
   // Slider init: load today's values
