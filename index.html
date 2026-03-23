@@ -382,42 +382,6 @@
   .v3-focus span { color: var(--warn); }
 
   /* ===== DAILY INPUT ROW ===== */
-  .daily-input-strip {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: 4px; padding: 20px 24px; margin-bottom: 32px;
-  }
-  .daily-strip-head {
-    font-size: 11px; font-weight: 600; color: var(--accent);
-    letter-spacing: 3px; text-transform: uppercase;
-    font-family: 'JetBrains Mono', monospace;
-    margin-bottom: 16px;
-  }
-  .daily-strip-grid {
-    display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;
-  }
-  .ds-cell {
-    text-align: center; padding: 10px 6px;
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 3px;
-  }
-  .ds-cell.today { border-color: var(--accent-border); }
-  .ds-day {
-    font-size: 9px; color: var(--text-muted); text-transform: uppercase;
-    letter-spacing: 1px; margin-bottom: 2px;
-  }
-  .ds-date {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 13px; color: var(--text-dim); margin-bottom: 6px; font-weight: 600;
-  }
-  .ds-input {
-    background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 2px; padding: 4px; width: 100%; text-align: center;
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
-    color: var(--text); outline: none; margin-bottom: 3px;
-  }
-  .ds-input:focus { border-color: var(--accent-border); }
-  .ds-input::placeholder { color: var(--text-muted); font-size: 9px; }
-
   /* ===== PROGRESS BARS ===== */
   .progress-strip {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
@@ -689,12 +653,12 @@
     .today-grid { grid-template-columns: 1fr; }
     .progress-strip { grid-template-columns: 1fr; }
     .stats-row { flex-wrap: wrap; gap: 20px; }
-    .daily-strip-grid, .dl-grid { grid-template-columns: repeat(4, 1fr); }
+    .dl-grid { grid-template-columns: repeat(4, 1fr); }
     .today-focus { font-size: 28px; }
     .shell { padding: 60px 16px 32px; }
   }
   @media (max-width: 600px) {
-    .daily-strip-grid, .dl-grid { grid-template-columns: repeat(2, 1fr); }
+    .dl-grid { grid-template-columns: repeat(2, 1fr); }
     .wk-head { flex-direction: column; align-items: flex-start; gap: 6px; }
   }
 </style>
@@ -851,12 +815,6 @@
       <textarea class="note-canvas" id="note-canvas"
         placeholder="classifications, indications, algorithms, imaging triggers, age patterns, pitfalls..."></textarea>
     </div>
-  </div>
-
-  <!-- TODAY'S DAILY INPUT -->
-  <div class="daily-input-strip" id="today-daily-strip">
-    <div class="daily-strip-head">This Week &mdash; Daily Log</div>
-    <div class="daily-strip-grid" id="today-daily-grid"></div>
   </div>
 
   <!-- PROGRESS BARS -->
@@ -1185,26 +1143,6 @@ function renderToday() {
   canvas.value = state.notes[noteKey] || '';
   canvas.setAttribute('data-key', noteKey);
 
-  // Daily strip for this week
-  const start = new Date(w.start);
-  const end = new Date(w.end);
-  const days = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(new Date(d));
-
-  document.getElementById('today-daily-grid').innerHTML = days.map(d => {
-    const k = dateKey(d);
-    const isToday = d.getTime() === t.getTime();
-    const dd = state.daily[k] || {};
-    return `
-      <div class="ds-cell ${isToday ? 'today' : ''}">
-        <div class="ds-day">${DAY_NAMES[d.getDay()]}</div>
-        <div class="ds-date">${d.getDate()}</div>
-        <input class="ds-input" placeholder="RS" value="${dd.rs || ''}" onchange="updateDaily('${k}','rs',this.value)">
-        <input class="ds-input" placeholder="V3" value="${dd.v3 || ''}" onchange="updateDaily('${k}','v3',this.value)">
-        <input class="ds-input" placeholder="Ch" value="${dd.ch || ''}" onchange="updateDaily('${k}','ch',this.value)">
-      </div>`;
-  }).join('');
-
   // Progress bars
   document.getElementById('p-rs').textContent = state.rsDone || 0;
   document.getElementById('p-rs-bar').style.width = Math.min(100, ((state.rsDone || 0) / 3360) * 100) + '%';
@@ -1219,8 +1157,15 @@ function renderToday() {
 // ============================================================
 function renderWeeks() {
   const cw = getCurrentWeek().num;
+  // Preserve which weeks are open before re-render
+  const openWeeks = new Set();
+  document.querySelectorAll('.wk-card.open').forEach(el => {
+    const m = el.id.match(/wk-(\d+)/);
+    if (m) openWeeks.add(parseInt(m[1]));
+  });
   document.getElementById('weeks-container').innerHTML = WEEKS.map(w => {
     const isCurrent = w.num === cw;
+    const isOpen = openWeeks.has(w.num);
     const chs = w.chapters.map(([num, title]) => {
       const key = `ch_${num}`;
       const done = state.chapters[key];
@@ -1234,7 +1179,7 @@ function renderWeeks() {
     const cpRs = typeof w.checkpoint.rs === 'number' ? w.checkpoint.rs : 'clr';
     const cpV3 = typeof w.checkpoint.v3 === 'number' ? w.checkpoint.v3 : 'clr';
     return `
-      <div class="wk-card ${isCurrent ? 'current' : ''}" id="wk-${w.num}">
+      <div class="wk-card ${isCurrent ? 'current' : ''} ${isOpen ? 'open' : ''}" id="wk-${w.num}">
         <div class="wk-head" onclick="document.getElementById('wk-${w.num}').classList.toggle('open')">
           <div class="wk-head-left">
             <div class="wk-num">W${w.num}</div>
