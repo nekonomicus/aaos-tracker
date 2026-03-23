@@ -656,9 +656,28 @@
     font-family: 'JetBrains Mono', monospace; font-size: 10px;
     color: var(--text-muted); margin-left: auto;
   }
+  .el-entry { cursor: pointer; transition: background 0.15s; }
+  .el-entry:hover { background: rgba(255,255,255,0.02); }
+  .el-chevron {
+    font-size: 10px; color: var(--text-muted); transition: transform 0.2s;
+    margin-left: auto;
+  }
+  .el-entry.expanded .el-chevron { transform: rotate(180deg); }
+  .el-preview {
+    font-size: 12px; color: var(--text-dim); line-height: 1.4;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .el-entry.expanded .el-preview { display: none; }
+  .el-full { display: none; }
+  .el-entry.expanded .el-full { display: block; margin-top: 8px; }
   .el-question {
-    font-size: 12px; color: var(--text-dim); line-height: 1.5;
-    margin-bottom: 6px;
+    font-size: 13px; color: var(--text); line-height: 1.6;
+    margin-bottom: 8px;
+  }
+  .el-choices {
+    font-size: 12px; color: var(--text-dim); line-height: 1.6;
+    margin-bottom: 8px; padding-left: 8px;
+    border-left: 2px solid var(--border);
   }
   .el-answer {
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
@@ -666,7 +685,7 @@
   }
   .el-discussion {
     font-size: 11px; color: var(--text-muted); line-height: 1.5;
-    margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
   }
   .el-del {
     background: none; border: none; color: var(--text-muted); cursor: pointer;
@@ -1320,20 +1339,24 @@ function renderErrorLog() {
 
   document.getElementById('el-entries').innerHTML = bank.slice().reverse().map((e, i) => {
     const idx = bank.length - 1 - i;
-    const qShort = e.question.length > 160 ? e.question.slice(0, 160) + '...' : e.question;
-    const discShort = e.discussion ? (e.discussion.length > 200 ? e.discussion.slice(0, 200) + '...' : e.discussion) : '';
+    const qShort = e.question.length > 80 ? e.question.slice(0, 80) + '...' : e.question;
     return `
-      <div class="el-entry">
+      <div class="el-entry" onclick="this.classList.toggle('expanded')">
         <div class="el-entry-head">
           <span class="el-tag ${e.type}">${e.type}</span>
           ${e.source ? `<span class="el-source">${e.source}</span>` : ''}
           <span class="el-qid">${e.id || '—'}</span>
           <span class="el-date">${e.date}</span>
-          <button class="el-del" onclick="deleteError(${idx})" title="Delete">&times;</button>
+          <span class="el-chevron">&#9660;</span>
+          <button class="el-del" onclick="event.stopPropagation();deleteError(${idx})" title="Delete">&times;</button>
         </div>
-        <div class="el-question">${qShort}</div>
-        <div class="el-answer">Answer: ${e.answer}</div>
-        ${discShort ? `<div class="el-discussion">${discShort}</div>` : ''}
+        <div class="el-preview">${qShort}</div>
+        <div class="el-full">
+          <div class="el-question">${e.question}</div>
+          ${e.choices ? `<div class="el-choices">${e.choices.replace(/\n/g, '<br>')}</div>` : ''}
+          <div class="el-answer">Answer: ${e.answer}</div>
+          ${e.discussion ? `<div class="el-discussion">${e.discussion}</div>` : ''}
+        </div>
       </div>`;
   }).join('');
 }
