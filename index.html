@@ -268,6 +268,40 @@
   .lt-ch-title { font-size: 14px; color: var(--text); font-weight: 500; }
   .lt-ch.done .lt-ch-title { color: var(--text-muted); text-decoration: line-through; }
 
+  /* 4R STEPS */
+  .r-step {
+    border-top: 1px solid var(--border);
+    padding: 16px 0 8px;
+  }
+  .r-step-head {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 10px;
+  }
+  .r-step-num {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2px solid var(--accent); color: var(--accent);
+    font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .r-step-name {
+    font-family: 'JetBrains Mono', monospace; font-weight: 700;
+    font-size: 16px; color: var(--text); text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  .r-step-desc {
+    font-size: 12px; color: var(--text-muted); margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .r-step-body { padding-left: 42px; }
+  .r-range-info {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px; font-weight: 700; color: var(--accent);
+    padding: 4px 0 8px; letter-spacing: 1px;
+  }
+  .r-reflect-note {
+    font-size: 13px; color: var(--text-dim);
+    font-family: 'Inter', sans-serif; line-height: 1.5; padding: 4px 0;
+  }
+
   /* LOG TODAY */
   .log-today {
     background: var(--bg-card); border: 1px solid var(--border);
@@ -657,63 +691,101 @@
     </div>
   </div>
 
-  <!-- ===== LOG TODAY: SLIDERS + TARGETS ===== -->
+  <!-- ===== 4R PROTOCOL: REVIEW → READ → REINFORCE → REFLECT ===== -->
   <div class="log-today" id="log-today">
     <div class="log-today-head">
-      <div class="log-today-title">Log Today</div>
+      <div class="log-today-title">Today's Protocol</div>
       <div class="log-today-day" id="log-today-day"></div>
     </div>
-    <div class="slider-row">
-      <div class="slider-label">ResStudy Qs</div>
-      <div class="slider-wrap">
-        <input type="range" class="slider-input accent-slider" id="slider-rs" min="0" max="200" value="0"
-          oninput="onSlider('rs', this.value)">
-      </div>
-      <div class="slider-val accent" id="slider-rs-val">0</div>
-      <div class="slider-max">/ 200</div>
-    </div>
-    <div class="slider-row">
-      <div class="slider-label">Volume 3 Qs</div>
-      <div class="slider-wrap">
-        <input type="range" class="slider-input warn-slider" id="slider-v3" min="0" max="200" value="0"
-          oninput="onSlider('v3', this.value)">
-      </div>
-      <div class="slider-val warn" id="slider-v3-val">0</div>
-      <div class="slider-max">/ 200</div>
-    </div>
+
     <div id="log-today-targets">
       <!-- daily targets rendered here -->
     </div>
-    <div id="log-today-chapters">
-      <!-- today's chapters rendered here -->
+
+    <!-- STEP 1: REVIEW -->
+    <div class="r-step">
+      <div class="r-step-head">
+        <div class="r-step-num">1</div>
+        <div class="r-step-name">Review</div>
+        <div class="r-step-desc">ResStudy — all topics, oldest first</div>
+      </div>
+      <div class="r-step-body">
+        <div class="r-range-info" id="rs-range-info"></div>
+        <div class="slider-row">
+          <div class="slider-label">Done today</div>
+          <div class="slider-wrap">
+            <input type="range" class="slider-input accent-slider" id="slider-rs" min="0" max="200" value="0"
+              oninput="onSlider('rs', this.value)">
+          </div>
+          <div class="slider-val accent" id="slider-rs-val">0</div>
+          <div class="slider-max">/ 200</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: READ -->
+    <div class="r-step">
+      <div class="r-step-head">
+        <div class="r-step-num">2</div>
+        <div class="r-step-name">Read</div>
+        <div class="r-step-desc" id="r-read-desc">Chapters</div>
+      </div>
+      <div class="r-step-body" id="log-today-chapters">
+        <!-- today's chapters rendered here -->
+      </div>
+    </div>
+
+    <!-- STEP 3: REINFORCE -->
+    <div class="r-step">
+      <div class="r-step-head">
+        <div class="r-step-num">3</div>
+        <div class="r-step-name">Reinforce</div>
+        <div class="r-step-desc" id="v3-section-label">Vol 3 — current section</div>
+      </div>
+      <div class="r-step-body">
+        <div class="slider-row">
+          <div class="slider-label">Done today</div>
+          <div class="slider-wrap">
+            <input type="range" class="slider-input warn-slider" id="slider-v3" min="0" max="200" value="0"
+              oninput="onSlider('v3', this.value)">
+          </div>
+          <div class="slider-val warn" id="slider-v3-val">0</div>
+          <div class="slider-max">/ 200</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 4: REFLECT -->
+    <div class="r-step">
+      <div class="r-step-head">
+        <div class="r-step-num">4</div>
+        <div class="r-step-name">Reflect</div>
+        <div class="r-step-desc">Error log — wrong + lucky guesses only</div>
+      </div>
+      <div class="r-step-body">
+        <div class="r-reflect-note">Review every wrong answer and guessed-right. Max 1 page of notes.</div>
+      </div>
     </div>
   </div>
 
-  <!-- ===== TODAY GRID: CHAPTERS + NOTES ===== -->
+  <!-- ===== WEEKLY CHECKPOINTS + NOTES ===== -->
   <div class="today-grid">
-    <!-- LEFT: chapters to read -->
     <div class="panel" id="today-chapters-panel">
       <div class="panel-head">
-        <div class="panel-title">This Week's Chapters</div>
+        <div class="panel-title">Week Checkpoints</div>
         <div class="panel-count" id="today-ch-count"></div>
       </div>
-      <div class="q-targets" id="today-q-targets">
-        <!-- filled by JS -->
-      </div>
+      <div class="q-targets" id="today-q-targets"></div>
       <div class="v3-focus" id="today-v3">Vol 3: <span id="today-v3-text"></span></div>
-      <div class="panel-body" id="today-ch-list">
-        <!-- filled by JS -->
-      </div>
     </div>
 
-    <!-- RIGHT: note canvas -->
     <div class="panel">
       <div class="panel-head">
         <div class="panel-title">Notes</div>
         <div class="panel-count" style="color:var(--text-muted)">freestyle</div>
       </div>
       <textarea class="note-canvas" id="note-canvas"
-        placeholder="jot anything here — classifications, indications, algorithms, imaging triggers, age patterns, pitfalls..."></textarea>
+        placeholder="classifications, indications, algorithms, imaging triggers, age patterns, pitfalls..."></textarea>
     </div>
   </div>
 
@@ -994,6 +1066,19 @@ function renderToday() {
   document.getElementById('slider-rs-val').textContent = todayData.rs || 0;
   document.getElementById('slider-v3-val').textContent = todayData.v3 || 0;
 
+  // RS range: "Questions #X – #Y" (sequential from oldest)
+  const totalRsDone = state.rsDone || 0;
+  const todayRsVal = parseInt(todayData.rs) || 0;
+  const rsFrom = totalRsDone - todayRsVal + 1;
+  const rsTo = totalRsDone || rsFrom;
+  document.getElementById('rs-range-info').textContent = todayRsVal > 0
+    ? `Questions #${rsFrom} – #${rsTo}`
+    : `Next up: Question #${totalRsDone + 1}`;
+
+  // V3 section label
+  document.getElementById('v3-section-label').textContent = `Vol 3 — ${w.v3focus}`;
+  document.getElementById('r-read-desc').textContent = w.focus;
+
   // Today's chapters inside LOG TODAY
   const todayChDone = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
   document.getElementById('log-today-chapters').innerHTML = `
@@ -1013,20 +1098,9 @@ function renderToday() {
     }).join('')}
   `;
 
-  // Chapters
+  // Chapter count for weekly panel
   const done = w.chapters.filter(([n]) => state.chapters[`ch_${n}`]).length;
   document.getElementById('today-ch-count').textContent = `${done} / ${w.chapters.length}`;
-
-  document.getElementById('today-ch-list').innerHTML = w.chapters.map(([num, title]) => {
-    const key = `ch_${num}`;
-    const isDone = state.chapters[key];
-    return `
-      <div class="ch-item ${isDone ? 'done' : ''}" onclick="toggleCh('${key}', this)">
-        <div class="ch-box ${isDone ? 'on' : ''}"></div>
-        <div class="ch-num">${num}</div>
-        <div class="ch-title">${title}</div>
-      </div>`;
-  }).join('');
 
   // Notes canvas
   const noteKey = `note_w${w.num}`;
