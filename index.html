@@ -340,12 +340,14 @@
   }
   .slider-input.accent-slider::-webkit-slider-thumb { background: var(--accent); }
   .slider-input.warn-slider::-webkit-slider-thumb { background: var(--warn); }
+  .slider-input.ob-slider::-webkit-slider-thumb { background: var(--blue); }
   .slider-input::-moz-range-thumb {
     width: 18px; height: 18px; border-radius: 50%;
     cursor: pointer; border: 2px solid #000;
   }
   .slider-input.accent-slider::-moz-range-thumb { background: var(--accent); }
   .slider-input.warn-slider::-moz-range-thumb { background: var(--warn); }
+  .slider-input.ob-slider::-moz-range-thumb { background: var(--blue); }
   .slider-val {
     font-family: 'JetBrains Mono', monospace;
     font-size: 22px; font-weight: 700; width: 56px;
@@ -759,6 +761,10 @@
       <div class="stat-label">Vol 3 Qs</div>
     </div>
     <div class="stat-block">
+      <div class="stat-num" id="s-ob" style="color:var(--blue)">0</div>
+      <div class="stat-label">Orthobullets</div>
+    </div>
+    <div class="stat-block">
       <div class="stat-num danger" id="s-pct">0%</div>
       <div class="stat-label">Overall</div>
     </div>
@@ -839,6 +845,26 @@
         <div class="r-reflect-note">Review every wrong answer and guessed-right. Max 1 page of notes.</div>
       </div>
     </div>
+
+    <!-- STEP 5: ORTHOBULLETS -->
+    <div class="r-step">
+      <div class="r-step-head">
+        <div class="r-step-num">5</div>
+        <div class="r-step-name">Orthobullets</div>
+        <div class="r-step-desc">~5,000 Qs — bonus bank, no fixed target, log what you do</div>
+      </div>
+      <div class="r-step-body">
+        <div class="slider-row">
+          <div class="slider-label">Done today</div>
+          <div class="slider-wrap">
+            <input type="range" class="slider-input ob-slider" id="slider-ob" min="0" max="200" value="0"
+              oninput="onSlider('ob', this.value)">
+          </div>
+          <div class="slider-val" id="slider-ob-val" style="color:var(--blue)">0</div>
+          <div class="slider-max">/ 200</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ===== WEEKLY CHECKPOINTS + NOTES ===== -->
@@ -879,6 +905,13 @@
         <div class="prog-count"><span id="p-v3">0</span> / 500</div>
       </div>
       <div class="prog-bar"><div class="prog-fill warn" id="p-v3-bar" style="width:0%"></div></div>
+    </div>
+    <div class="prog-card">
+      <div class="prog-head">
+        <div class="prog-title">Orthobullets</div>
+        <div class="prog-count"><span id="p-ob">0</span> / 5,000</div>
+      </div>
+      <div class="prog-bar"><div class="prog-fill blue" id="p-ob-bar" style="width:0%"></div></div>
     </div>
     <div class="prog-card">
       <div class="prog-head">
@@ -1045,6 +1078,7 @@ function renderToday() {
   document.getElementById('s-ch').textContent = ch;
   document.getElementById('s-rs').textContent = state.rsDone || 0;
   document.getElementById('s-v3').textContent = state.v3Done || 0;
+  document.getElementById('s-ob').textContent = state.obDone || 0;
   document.getElementById('s-pct').textContent = Math.round((ch / 151) * 100) + '%';
 
   // Question targets
@@ -1110,6 +1144,7 @@ function renderToday() {
   // Today's done
   const todayRs = parseInt((state.daily[dk] || {}).rs) || 0;
   const todayV3 = parseInt((state.daily[dk] || {}).v3) || 0;
+  const todayOb = parseInt((state.daily[dk] || {}).ob) || 0;
   const todayCh = weekDoneCh; // chapters are weekly
 
   const rsOk = todayRs >= stdRs;
@@ -1117,7 +1152,7 @@ function renderToday() {
   const chOk = todayCh >= weekTargetCh || stdCh === 0;
   const todayDone = rsOk && v3Ok;
 
-  // Overall progress
+  // Overall progress (OB is bonus, not in core target)
   const totalQs = 3851 + 500;
   const totalDone = (state.rsDone || 0) + (state.v3Done || 0);
   const overallPct = Math.round((totalDone / totalQs) * 100);
@@ -1143,6 +1178,11 @@ function renderToday() {
         <div class="tb-name">V3</div>
         <div class="tb-nums ${v3Ok ? 'ok' : ''}">${todayV3} / ${stdV3}</div>
         ${bar(todayV3, stdV3, 'warn')}
+      </div>` : ''}
+      ${todayOb > 0 ? `<div class="tb-row">
+        <div class="tb-name">OB</div>
+        <div class="tb-nums" style="color:var(--blue)">${todayOb} bonus</div>
+        ${bar(todayOb, 50, 'blue')}
       </div>` : ''}
     </div>
     <div class="tb-section-label">THIS WEEK <span class="tb-section-sub">${dLeft} day${dLeft > 1 ? 's' : ''} left</span></div>
@@ -1170,10 +1210,13 @@ function renderToday() {
   const todayData = state.daily[dk] || {};
   const sliderRs = document.getElementById('slider-rs');
   const sliderV3 = document.getElementById('slider-v3');
+  const sliderOb = document.getElementById('slider-ob');
   sliderRs.value = todayData.rs || 0;
   sliderV3.value = todayData.v3 || 0;
+  sliderOb.value = todayData.ob || 0;
   document.getElementById('slider-rs-val').textContent = todayData.rs || 0;
   document.getElementById('slider-v3-val').textContent = todayData.v3 || 0;
+  document.getElementById('slider-ob-val').textContent = todayData.ob || 0;
 
   // RS range: "Questions #X – #Y" (sequential from oldest)
   const totalRsDone = state.rsDone || 0;
@@ -1222,6 +1265,8 @@ function renderToday() {
   document.getElementById('p-rs-bar').style.width = Math.min(100, ((state.rsDone || 0) / 3851) * 100) + '%';
   document.getElementById('p-v3').textContent = state.v3Done || 0;
   document.getElementById('p-v3-bar').style.width = Math.min(100, ((state.v3Done || 0) / 500) * 100) + '%';
+  document.getElementById('p-ob').textContent = state.obDone || 0;
+  document.getElementById('p-ob-bar').style.width = Math.min(100, ((state.obDone || 0) / 5000) * 100) + '%';
   document.getElementById('p-ch').textContent = ch;
   document.getElementById('p-ch-bar').style.width = Math.min(100, (ch / 151) * 100) + '%';
 }
@@ -1296,6 +1341,7 @@ function renderDailyLog() {
           <div class="dl-date">${d.getDate()}</div>
           <input class="dl-input" placeholder="RS" value="${dd.rs || ''}" onchange="updateDaily('${k}','rs',this.value)">
           <input class="dl-input" placeholder="V3" value="${dd.v3 || ''}" onchange="updateDaily('${k}','v3',this.value)">
+          <input class="dl-input" placeholder="OB" value="${dd.ob || ''}" onchange="updateDaily('${k}','ob',this.value)">
           <input class="dl-input" placeholder="Ch" value="${dd.ch || ''}" onchange="updateDaily('${k}','ch',this.value)">
         </div>`;
     }).join('');
@@ -1513,10 +1559,11 @@ function onSlider(field, value) {
 function updateDaily(dk, field, value) {
   if (!state.daily[dk]) state.daily[dk] = {};
   state.daily[dk][field] = value;
-  let rs = 0, v3 = 0;
-  Object.values(state.daily).forEach(d => { rs += parseInt(d.rs) || 0; v3 += parseInt(d.v3) || 0; });
+  let rs = 0, v3 = 0, ob = 0;
+  Object.values(state.daily).forEach(d => { rs += parseInt(d.rs) || 0; v3 += parseInt(d.v3) || 0; ob += parseInt(d.ob) || 0; });
   state.rsDone = rs;
   state.v3Done = v3;
+  state.obDone = ob;
   save(state);
   renderToday();
 }
