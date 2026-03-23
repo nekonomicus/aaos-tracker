@@ -642,6 +642,12 @@
   }
   .el-tag.wrong { color: var(--danger); background: var(--danger-dim); }
   .el-tag.guessed { color: var(--warn); background: var(--warn-dim); }
+  .el-source {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-weight: 600; letter-spacing: 1px;
+    padding: 2px 8px; border-radius: 2px;
+    color: var(--blue); background: rgba(74,158,255,0.1);
+  }
   .el-qid {
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
     color: var(--text-dim); font-weight: 600;
@@ -1320,6 +1326,7 @@ function renderErrorLog() {
       <div class="el-entry">
         <div class="el-entry-head">
           <span class="el-tag ${e.type}">${e.type}</span>
+          ${e.source ? `<span class="el-source">${e.source}</span>` : ''}
           <span class="el-qid">${e.id || '—'}</span>
           <span class="el-date">${e.date}</span>
           <button class="el-del" onclick="deleteError(${idx})" title="Delete">&times;</button>
@@ -1332,28 +1339,80 @@ function renderErrorLog() {
 }
 
 function parseQuestionDump(text) {
-  const lines = text.trim();
-  // Extract question ID (e.g., "A-3:" or "B-12:" at the start)
-  const idMatch = lines.match(/^([A-Z]-\d+):/);
-  const id = idMatch ? idMatch[1] : '';
+  const t = text.trim();
 
-  // Extract preferred response
-  const prefMatch = lines.match(/PREFERRED RESPONSE:\s*([A-E])/i);
+  // --- Detect source ---
+  let source = '';
+  // ResStudy bank IDs: #OKU13-001, #OITE2024-045, etc.
+  const rsIdMatch = t.match(/#(OKU\d+|OITE\d+)-(\d+)/i);
+  // ResStudy header: "ResStudy - OKU 13", "ResStudy - OITE 2024"
+  const rsHeaderMatch = t.match(/ResStudy\s*[-–—]\s*(OKU\s*\d+|OITE\s*\d{4})/i);
+  // Topic bank: "ResStudy - Adult Reconstruction", "ResStudy - Shoulder & Elbow"
+  const rsTopicMatch = t.match(/ResStudy\s*[-–—]\s*(Adult Reconstruction|Foot\s*&?\s*Ankle|Trauma|Shoulder\s*&?\s*Elbow|Hand\s*&?\s*Wrist|Pediatrics|Adult Spine|Musculoskeletal Tumors|Sports Medicine|Anatomy|Basic Science|Miscellaneous)/i);
+  // V3 format: "Q-1:" or "A-3:" at start
+  const v3IdMatch = t.match(/^([A-Z])-(\d+):/m) || t.match(/Q-(\d+):/);
+  // "Question X of Y"
+  const qOfMatch = t.match(/Question\s+(\d+)\s+of\s+(\d+)/i);
+
+  if (rsIdMatch) {
+    source = rsIdMatch[1].toUpperCase().replace(/(\D)(\d)/, '$1 $2');
+  } else if (rsHeaderMatch) {
+    source = rsHeaderMatch[1].replace(/\s+/g, ' ').trim();
+  } else if (rsTopicMatch) {
+    source = 'Topic: ' + rsTopicMatch[1].trim();
+  } else if (v3IdMatch) {
+    source = 'Volume 3';
+  }
+
+  // --- Extract ID ---
+  let id = '';
+  if (rsIdMatch) {
+    id = '#' + rsIdMatch[1] + '-' + rsIdMatch[2];
+  } else if (v3IdMatch) {
+    id = v3IdMatch[0].replace(/:$/, '');
+  } else if (qOfMatch) {
+    id = 'Q' + qOfMatch[1];
+  }
+
+  // --- Extract preferred response ---
+  const prefMatch = t.match(/PREFERRED RESPONSE:\s*([A-E])/i);
   const answer = prefMatch ? prefMatch[1] : '?';
 
-  // Extract discussion
-  const discMatch = lines.match(/DISCUSSION:\s*([\s\S]*?)(?:REFERENCES:|$)/i);
+  // --- Extract discussion ---
+  const discMatch = t.match(/DISCUSSION:\s*([\s\S]*?)(?:REFERENCES:|$)/i);
   const discussion = discMatch ? discMatch[1].trim() : '';
 
-  // Extract question stem (from start to first answer choice)
-  const stemMatch = lines.match(/^([\s\S]*?)(?:\n\s*A\.\s)/m);
-  const question = stemMatch ? stemMatch[1].replace(/^[A-Z]-\d+:\s*/, '').trim() : lines.slice(0, 300);
+  // --- Extract question stem ---
+  // V3 format: lines before "A. "
+  const stemV3 = t.match(/^([\s\S]*?)(?:\n\s*A\.\s)/m);
+  // RS format: lines before first "* " answer choice (skip header lines)
+  const stemRS = t.match(/(?:^|\n)((?:A |An |The |In |What |Which |During |After |For |If |How |When |Figure|Figures|Upon)[\s\S]*?)(?:\n\s*\*\s)/m);
+  let question = '';
+  if (stemV3) {
+    question = stemV3[1].replace(/^[A-Z]-\d+:\s*/, '').trim();
+  } else if (stemRS) {
+    question = stemRS[1].trim();
+  } else {
+    question = t.slice(0, 400);
+  }
+  // Clean header lines from question
+  question = question.replace(/^ResStudy[\s\S]*?\n/i, '').replace(/^Question\s+\d+.*\n/i, '').replace(/^#\S+\s*\n?/m, '').trim();
 
-  // Extract all choices
-  const choicesMatch = lines.match(/\n\s*(A\.[\s\S]*?)(?:PREFERRED RESPONSE)/i);
-  const choices = choicesMatch ? choicesMatch[1].trim() : '';
+  // --- Extract choices ---
+  // V3: "A. ... B. ... C. ... D. ..."
+  const choicesV3 = t.match(/\n\s*(A\.[\s\S]*?)(?:PREFERRED RESPONSE)/i);
+  // RS: "* choice1\n* choice2\n..."
+  const choicesRS = t.match(/(\n\s*\*\s[\s\S]*?)(?:\n\s*(?:PREFERRED|DISCUSSION|REFERENCES)|\s*$)/i);
+  let choices = '';
+  if (choicesV3) {
+    choices = choicesV3[1].trim();
+  } else if (choicesRS) {
+    // Convert * bullets to A. B. C. D.
+    const bullets = choicesRS[1].trim().split(/\s*\*\s+/).filter(Boolean);
+    choices = bullets.map((b, i) => String.fromCharCode(65 + i) + '. ' + b.trim()).join('\n');
+  }
 
-  return { id, question, choices, answer, discussion };
+  return { id, source, question, choices, answer, discussion };
 }
 
 function dumpQuestion(type) {
@@ -1367,6 +1426,7 @@ function dumpQuestion(type) {
   state.errorBank.push({
     type: type,
     id: parsed.id,
+    source: parsed.source,
     question: parsed.question,
     choices: parsed.choices,
     answer: parsed.answer,
@@ -1396,7 +1456,7 @@ function exportErrorBank() {
   md += '---\n\n';
 
   bank.forEach((e, i) => {
-    md += `## ${i+1}. [${e.type.toUpperCase()}] ${e.id || 'No ID'} — ${e.date}\n\n`;
+    md += `## ${i+1}. [${e.type.toUpperCase()}] ${e.source ? '[' + e.source + '] ' : ''}${e.id || 'No ID'} — ${e.date}\n\n`;
     md += `**Question:** ${e.question}\n\n`;
     if (e.choices) md += `${e.choices}\n\n`;
     md += `**Preferred Response:** ${e.answer}\n\n`;
