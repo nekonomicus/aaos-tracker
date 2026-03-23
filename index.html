@@ -601,24 +601,88 @@
   .s-arrow { color: var(--text-muted); font-size: 10px; }
 
   /* ERROR LOG */
-  .error-log {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: 4px; padding: 24px; margin-top: 16px;
+  .error-log { padding: 0; }
+  .el-dump-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
   }
-  .error-log-title {
+  .el-title {
     font-size: 11px; color: var(--danger);
-    text-transform: uppercase; letter-spacing: 3px; margin-bottom: 12px;
+    text-transform: uppercase; letter-spacing: 3px;
     font-weight: 600; font-family: 'JetBrains Mono', monospace;
   }
-  .error-textarea {
-    width: 100%; min-height: 120px; background: var(--bg-input);
+  .el-stats {
+    display: flex; gap: 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  }
+  .el-stat { color: var(--text-dim); }
+  .el-stat b { font-weight: 700; }
+  .el-stat.wrong b { color: var(--danger); }
+  .el-stat.guessed b { color: var(--warn); }
+  .el-dump-area {
+    width: 100%; min-height: 140px; background: var(--bg-input);
     border: 1px solid var(--border); border-radius: 3px;
     padding: 12px; font-family: 'JetBrains Mono', monospace;
-    font-size: 12px; color: var(--text); resize: vertical;
-    outline: none; line-height: 1.6;
+    font-size: 11px; color: var(--text); resize: vertical;
+    outline: none; line-height: 1.5;
   }
-  .error-textarea:focus { border-color: var(--accent-border); }
-  .error-textarea::placeholder { color: var(--text-muted); }
+  .el-dump-area:focus { border-color: var(--danger); }
+  .el-dump-area::placeholder { color: var(--text-muted); }
+  .el-btns {
+    display: flex; gap: 10px; margin-top: 10px;
+  }
+  .el-btn {
+    flex: 1; padding: 10px; border: 1px solid var(--border);
+    border-radius: 3px; background: var(--bg-input); cursor: pointer;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  .el-btn.wrong { color: var(--danger); }
+  .el-btn.wrong:hover { background: var(--danger-dim); border-color: var(--danger); }
+  .el-btn.guessed { color: var(--warn); }
+  .el-btn.guessed:hover { background: var(--warn-dim); border-color: var(--warn); }
+  .el-btn.export-md { color: var(--accent); flex: 0; padding: 10px 20px; }
+  .el-btn.export-md:hover { background: var(--accent-dim); border-color: var(--accent); }
+  .el-entries { margin-top: 20px; }
+  .el-entry {
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 14px; margin-bottom: 8px; background: var(--bg-input);
+  }
+  .el-entry-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  }
+  .el-tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 2px;
+  }
+  .el-tag.wrong { color: var(--danger); background: var(--danger-dim); }
+  .el-tag.guessed { color: var(--warn); background: var(--warn-dim); }
+  .el-qid {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--text-dim); font-weight: 600;
+  }
+  .el-date {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--text-muted); margin-left: auto;
+  }
+  .el-question {
+    font-size: 12px; color: var(--text-dim); line-height: 1.5;
+    margin-bottom: 6px;
+  }
+  .el-answer {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--accent); font-weight: 600;
+  }
+  .el-discussion {
+    font-size: 11px; color: var(--text-muted); line-height: 1.5;
+    margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
+  }
+  .el-del {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 14px; padding: 0 4px; margin-left: 8px;
+  }
+  .el-del:hover { color: var(--danger); }
 
   /* RESPONSIVE */
   @media (max-width: 1000px) {
@@ -861,9 +925,22 @@
   <div class="tab-content" id="tab-errors">
     <div class="rules-panel">
       <div class="error-log">
-        <div class="error-log-title">Wrong Answers & Lucky Guesses</div>
-        <textarea class="error-textarea" id="error-log-text"
-          placeholder="Log wrong answers and guessed-right items here...&#10;Format: [date] [chapter] [topic] - note"></textarea>
+        <div class="el-dump-head">
+          <div class="el-title">Dump Questions</div>
+          <div class="el-stats">
+            <div class="el-stat wrong">Wrong: <b id="el-count-wrong">0</b></div>
+            <div class="el-stat guessed">Guessed: <b id="el-count-guessed">0</b></div>
+            <div class="el-stat">Total: <b id="el-count-total">0</b></div>
+          </div>
+        </div>
+        <textarea class="el-dump-area" id="el-dump"
+          placeholder="Paste full question here (ID, stem, choices, preferred response, discussion)..."></textarea>
+        <div class="el-btns">
+          <button class="el-btn wrong" onclick="dumpQuestion('wrong')">Wrong</button>
+          <button class="el-btn guessed" onclick="dumpQuestion('guessed')">Guessed Right</button>
+          <button class="el-btn export-md" onclick="exportErrorBank()">Export .md</button>
+        </div>
+        <div class="el-entries" id="el-entries"></div>
       </div>
     </div>
   </div>
@@ -910,7 +987,7 @@ function save(s) { localStorage.setItem('aaos_tracker', JSON.stringify(s)); }
 let state = load();
 if (!state.chapters) state.chapters = {};
 if (!state.daily) state.daily = {};
-if (!state.errorLog) state.errorLog = '';
+if (!state.errorBank) state.errorBank = [];
 if (!state.rsDone) state.rsDone = 0;
 if (!state.v3Done) state.v3Done = 0;
 if (!state.notes) state.notes = {};
@@ -1234,7 +1311,110 @@ function renderRules() {
 }
 
 function renderErrorLog() {
-  document.getElementById('error-log-text').value = state.errorLog || '';
+  const bank = state.errorBank || [];
+  const wrong = bank.filter(e => e.type === 'wrong').length;
+  const guessed = bank.filter(e => e.type === 'guessed').length;
+  document.getElementById('el-count-wrong').textContent = wrong;
+  document.getElementById('el-count-guessed').textContent = guessed;
+  document.getElementById('el-count-total').textContent = bank.length;
+
+  document.getElementById('el-entries').innerHTML = bank.slice().reverse().map((e, i) => {
+    const idx = bank.length - 1 - i;
+    const qShort = e.question.length > 160 ? e.question.slice(0, 160) + '...' : e.question;
+    const discShort = e.discussion ? (e.discussion.length > 200 ? e.discussion.slice(0, 200) + '...' : e.discussion) : '';
+    return `
+      <div class="el-entry">
+        <div class="el-entry-head">
+          <span class="el-tag ${e.type}">${e.type}</span>
+          <span class="el-qid">${e.id || '—'}</span>
+          <span class="el-date">${e.date}</span>
+          <button class="el-del" onclick="deleteError(${idx})" title="Delete">&times;</button>
+        </div>
+        <div class="el-question">${qShort}</div>
+        <div class="el-answer">Answer: ${e.answer}</div>
+        ${discShort ? `<div class="el-discussion">${discShort}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function parseQuestionDump(text) {
+  const lines = text.trim();
+  // Extract question ID (e.g., "A-3:" or "B-12:" at the start)
+  const idMatch = lines.match(/^([A-Z]-\d+):/);
+  const id = idMatch ? idMatch[1] : '';
+
+  // Extract preferred response
+  const prefMatch = lines.match(/PREFERRED RESPONSE:\s*([A-E])/i);
+  const answer = prefMatch ? prefMatch[1] : '?';
+
+  // Extract discussion
+  const discMatch = lines.match(/DISCUSSION:\s*([\s\S]*?)(?:REFERENCES:|$)/i);
+  const discussion = discMatch ? discMatch[1].trim() : '';
+
+  // Extract question stem (from start to first answer choice)
+  const stemMatch = lines.match(/^([\s\S]*?)(?:\n\s*A\.\s)/m);
+  const question = stemMatch ? stemMatch[1].replace(/^[A-Z]-\d+:\s*/, '').trim() : lines.slice(0, 300);
+
+  // Extract all choices
+  const choicesMatch = lines.match(/\n\s*(A\.[\s\S]*?)(?:PREFERRED RESPONSE)/i);
+  const choices = choicesMatch ? choicesMatch[1].trim() : '';
+
+  return { id, question, choices, answer, discussion };
+}
+
+function dumpQuestion(type) {
+  const textarea = document.getElementById('el-dump');
+  const raw = textarea.value.trim();
+  if (!raw) return;
+
+  const parsed = parseQuestionDump(raw);
+  if (!state.errorBank) state.errorBank = [];
+
+  state.errorBank.push({
+    type: type,
+    id: parsed.id,
+    question: parsed.question,
+    choices: parsed.choices,
+    answer: parsed.answer,
+    discussion: parsed.discussion,
+    date: dateKey(new Date()),
+    raw: raw
+  });
+
+  save(state);
+  textarea.value = '';
+  renderErrorLog();
+}
+
+function deleteError(idx) {
+  if (!state.errorBank) return;
+  state.errorBank.splice(idx, 1);
+  save(state);
+  renderErrorLog();
+}
+
+function exportErrorBank() {
+  const bank = state.errorBank || [];
+  if (!bank.length) { alert('No entries to export.'); return; }
+
+  let md = '# AAOS Error Bank\n\n';
+  md += `Total: ${bank.length} | Wrong: ${bank.filter(e=>e.type==='wrong').length} | Guessed Right: ${bank.filter(e=>e.type==='guessed').length}\n\n`;
+  md += '---\n\n';
+
+  bank.forEach((e, i) => {
+    md += `## ${i+1}. [${e.type.toUpperCase()}] ${e.id || 'No ID'} — ${e.date}\n\n`;
+    md += `**Question:** ${e.question}\n\n`;
+    if (e.choices) md += `${e.choices}\n\n`;
+    md += `**Preferred Response:** ${e.answer}\n\n`;
+    if (e.discussion) md += `**Discussion:** ${e.discussion}\n\n`;
+    md += '---\n\n';
+  });
+
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = `aaos-error-bank-${dateKey(new Date())}.md`;
+  a.click(); URL.revokeObjectURL(url);
 }
 
 // ============================================================
@@ -1283,7 +1463,7 @@ function importData(event) {
         state = imp;
         if (!state.chapters) state.chapters = {};
         if (!state.daily) state.daily = {};
-        if (!state.errorLog) state.errorLog = '';
+        if (!state.errorBank) state.errorBank = [];
         if (!state.rsDone) state.rsDone = 0;
         if (!state.v3Done) state.v3Done = 0;
         if (!state.notes) state.notes = {};
@@ -1299,7 +1479,7 @@ function importData(event) {
 function resetAll() {
   if (confirm('Reset all tracked progress? Cannot be undone.')) {
     localStorage.removeItem('aaos_tracker');
-    state = { chapters: {}, daily: {}, errorLog: '', rsDone: 0, v3Done: 0, notes: {} };
+    state = { chapters: {}, daily: {}, errorBank: [], rsDone: 0, v3Done: 0, notes: {} };
     renderAll();
   }
 }
@@ -1310,10 +1490,6 @@ document.getElementById('note-canvas').addEventListener('input', function() {
   if (key) { state.notes[key] = this.value; save(state); }
 });
 
-// Error log auto-save
-document.getElementById('error-log-text').addEventListener('input', function() {
-  state.errorLog = this.value; save(state);
-});
 
 // Tabs
 document.querySelectorAll('.tab').forEach(tab => {
