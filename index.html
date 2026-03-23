@@ -180,58 +180,50 @@
     padding: 0 24px 16px;
     border-bottom: 1px solid var(--border);
   }
-  .dt-header {
-    font-size: 10px; font-weight: 600; color: var(--text-muted);
-    letter-spacing: 3px; text-transform: uppercase;
-    font-family: 'JetBrains Mono', monospace;
-    padding: 16px 0 12px;
-  }
-  .dt-grid {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-  }
-  .dt-card {
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 4px; padding: 14px 16px;
-    text-align: center;
-  }
-  .dt-card.rescue { border-color: rgba(255,59,92,0.2); }
-  .dt-card.standard { border-color: rgba(74,158,255,0.2); }
-  .dt-card.heavy { border-color: rgba(0,212,170,0.2); }
-  .dt-mode {
-    font-size: 9px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; margin-bottom: 10px;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .dt-card.rescue .dt-mode { color: var(--danger); }
-  .dt-card.standard .dt-mode { color: var(--blue); }
-  .dt-card.heavy .dt-mode { color: var(--accent); }
-  .dt-row {
+  /* STATUS BANNER */
+  .today-status {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 3px 0;
+    padding: 18px 20px; border-radius: 4px; margin-bottom: 12px;
   }
-  .dt-label {
+  .today-status.go {
+    background: rgba(255,59,92,0.08); border: 2px solid rgba(255,59,92,0.3);
+  }
+  .today-status.good {
+    background: rgba(0,212,170,0.08); border: 2px solid rgba(0,212,170,0.3);
+  }
+  .ts-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px; font-weight: 800; letter-spacing: 2px;
+  }
+  .today-status.go .ts-label { color: var(--danger); }
+  .today-status.good .ts-label { color: var(--accent); }
+  .ts-pct {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px; font-weight: 700; color: var(--text-dim);
+  }
+  /* TODAY BARS */
+  .today-bars { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .tb-row { display: flex; align-items: center; gap: 12px; }
+  .tb-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    width: 24px; text-align: right; letter-spacing: 1px;
+  }
+  .tb-nums {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; font-weight: 700; color: var(--text-dim);
+    width: 70px;
+  }
+  .tb-nums.ok { color: var(--accent); }
+  .tb-bar {
+    flex: 1; height: 8px; background: var(--bg); border-radius: 4px;
+    overflow: hidden;
+  }
+  .tb-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .tb-week-left {
+    font-family: 'JetBrains Mono', monospace;
     font-size: 10px; color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .dt-val {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px; font-weight: 700; color: var(--text);
-  }
-  .dt-card.rescue .dt-val { color: var(--danger); }
-  .dt-card.standard .dt-val { color: var(--blue); }
-  .dt-card.heavy .dt-val { color: var(--accent); }
-  .dt-remaining {
-    font-size: 10px; color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
-    margin-top: 10px; padding-top: 8px;
-    border-top: 1px solid var(--border);
-    text-align: left;
-  }
-  .dt-remaining span { color: var(--text-dim); }
-  .dt-done-msg {
-    font-size: 12px; color: var(--accent);
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600; padding: 8px 0; text-align: center;
+    padding-top: 8px; border-top: 1px solid var(--border); margin-top: 4px;
   }
 
   /* TODAY CHAPTERS (inside log-today) */
@@ -1072,60 +1064,61 @@ function renderToday() {
 
   const allDone = remainRs === 0 && remainV3 === 0 && remainCh === 0;
 
-  if (allDone) {
-    document.getElementById('log-today-targets').innerHTML = `
-      <div class="dt-header">Today's Targets</div>
-      <div class="dt-done-msg">WEEK ${w.num} TARGETS MET</div>
-    `;
-  } else {
-    // Phase-aware daily targets
-    // Phase A (wk1-6): RS 35/d, V3 12/d | Phase B (wk7-10): RS 70/d, V3 0
-    // Phase C (wk11-12): RS 30/d, V3 0 | Phase D (wk13): RS 20/d review
-    const ph = w.phase || 'A';
-    const caps = ph === 'B' ? { rStd: 70, rHvy: 90, rRes: 40, vStd: 0, vHvy: 0 }
-               : ph === 'C' ? { rStd: 30, rHvy: 40, rRes: 15, vStd: 0, vHvy: 0 }
-               : ph === 'D' ? { rStd: 20, rHvy: 30, rRes: 10, vStd: 0, vHvy: 0 }
-               :              { rStd: 35, rHvy: 50, rRes: 20, vStd: 12, vHvy: 18 };
+  // Phase-aware daily standard targets
+  const phx = w.phase || 'A';
+  const caps = phx === 'B' ? { rStd: 70, vStd: 0 }
+             : phx === 'C' ? { rStd: 30, vStd: 0 }
+             : phx === 'D' ? { rStd: 20, vStd: 0 }
+             :               { rStd: 35, vStd: 12 };
 
-    const rescueRs = Math.min(caps.rRes, Math.ceil(remainRs / dLeft));
-    const rescueV3 = 0;
-    const rescueCh = Math.min(1, remainCh);
+  const stdRs = Math.min(caps.rStd, Math.ceil(remainRs / dLeft));
+  const stdV3 = Math.min(caps.vStd, Math.ceil(remainV3 / dLeft));
+  const stdCh = Math.min(2, Math.ceil(remainCh / dLeft));
 
-    const stdRs = Math.min(caps.rStd, Math.ceil(remainRs / dLeft));
-    const stdV3 = Math.min(caps.vStd, Math.ceil(remainV3 / dLeft));
-    const stdCh = Math.min(2, Math.ceil(remainCh / dLeft));
+  // Today's done
+  const todayRs = parseInt((state.daily[dk] || {}).rs) || 0;
+  const todayV3 = parseInt((state.daily[dk] || {}).v3) || 0;
+  const todayCh = weekDoneCh; // chapters are weekly
 
-    const heavyRs = Math.min(caps.rHvy, Math.ceil(remainRs / Math.max(1, Math.floor(dLeft / 2))));
-    const heavyV3 = Math.min(caps.vHvy, Math.ceil(remainV3 / Math.max(1, Math.floor(dLeft / 2))));
-    const heavyCh = Math.min(2, Math.ceil(remainCh / Math.max(1, Math.floor(dLeft / 2))));
+  const rsOk = todayRs >= stdRs;
+  const v3Ok = todayV3 >= stdV3 || stdV3 === 0;
+  const chOk = todayCh >= weekTargetCh || stdCh === 0;
+  const todayDone = rsOk && v3Ok;
 
-    document.getElementById('log-today-targets').innerHTML = `
-      <div class="dt-header">Today's Targets &mdash; ${dLeft} day${dLeft > 1 ? 's' : ''} left this week</div>
-      <div class="dt-grid">
-        <div class="dt-card rescue">
-          <div class="dt-mode">Rescue</div>
-          <div class="dt-row"><div class="dt-label">RS</div><div class="dt-val">${rescueRs}</div></div>
-          <div class="dt-row"><div class="dt-label">V3</div><div class="dt-val">${rescueV3}</div></div>
-          <div class="dt-row"><div class="dt-label">Ch</div><div class="dt-val">${rescueCh}</div></div>
-        </div>
-        <div class="dt-card standard">
-          <div class="dt-mode">Standard</div>
-          <div class="dt-row"><div class="dt-label">RS</div><div class="dt-val">${stdRs}</div></div>
-          <div class="dt-row"><div class="dt-label">V3</div><div class="dt-val">${stdV3}</div></div>
-          <div class="dt-row"><div class="dt-label">Ch</div><div class="dt-val">${stdCh}</div></div>
-        </div>
-        <div class="dt-card heavy">
-          <div class="dt-mode">Heavy</div>
-          <div class="dt-row"><div class="dt-label">RS</div><div class="dt-val">${heavyRs}</div></div>
-          <div class="dt-row"><div class="dt-label">V3</div><div class="dt-val">${heavyV3}</div></div>
-          <div class="dt-row"><div class="dt-label">Ch</div><div class="dt-val">${heavyCh}</div></div>
-        </div>
-      </div>
-      <div class="dt-remaining">
-        Remaining this week: <span>RS ${remainRs}</span> &nbsp; <span>V3 ${remainV3}</span> &nbsp; <span>Ch ${remainCh}</span>
-      </div>
-    `;
+  // Overall progress
+  const totalQs = 3851 + 500;
+  const totalDone = (state.rsDone || 0) + (state.v3Done || 0);
+  const overallPct = Math.round((totalDone / totalQs) * 100);
+
+  function bar(done, target, color) {
+    const pct = target > 0 ? Math.min(100, Math.round((done / target) * 100)) : 100;
+    return `<div class="tb-bar"><div class="tb-fill" style="width:${pct}%;background:var(--${color})"></div></div>`;
   }
+
+  document.getElementById('log-today-targets').innerHTML = `
+    <div class="today-status ${todayDone ? 'good' : 'go'}">
+      <div class="ts-label">${todayDone ? 'DONE FOR TODAY' : 'KEEP GOING'}</div>
+      <div class="ts-pct">${overallPct}% overall</div>
+    </div>
+    <div class="today-bars">
+      <div class="tb-row">
+        <div class="tb-name">RS</div>
+        <div class="tb-nums ${rsOk ? 'ok' : ''}">${todayRs} / ${stdRs}</div>
+        ${bar(todayRs, stdRs, 'accent')}
+      </div>
+      ${stdV3 > 0 ? `<div class="tb-row">
+        <div class="tb-name">V3</div>
+        <div class="tb-nums ${v3Ok ? 'ok' : ''}">${todayV3} / ${stdV3}</div>
+        ${bar(todayV3, stdV3, 'warn')}
+      </div>` : ''}
+      <div class="tb-row">
+        <div class="tb-name">Ch</div>
+        <div class="tb-nums ${chOk ? 'ok' : ''}">${todayCh} / ${w.chapters.length}</div>
+        ${bar(todayCh, w.chapters.length, 'blue')}
+      </div>
+    </div>
+    <div class="tb-week-left">${dLeft} day${dLeft > 1 ? 's' : ''} left &middot; RS ${remainRs} &middot; V3 ${remainV3} &middot; Ch ${remainCh} remaining</div>
+  `;
 
   // Slider init: load today's values
   document.getElementById('log-today-day').textContent = t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
