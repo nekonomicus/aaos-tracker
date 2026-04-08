@@ -925,16 +925,12 @@
   <!-- ===== TABS FOR THE REST ===== -->
   <div class="tabs">
     <button class="tab active" data-tab="weeks">All Weeks</button>
-    <button class="tab" data-tab="daily">Full Daily Log</button>
     <button class="tab" data-tab="rules">Rules & Engine</button>
     <button class="tab" data-tab="errors">Error Log</button>
   </div>
 
   <div class="tab-content active" id="tab-weeks">
     <div class="weeks-grid" id="weeks-container"></div>
-  </div>
-  <div class="tab-content" id="tab-daily">
-    <div class="daily-log-grid" id="daily-log-container"></div>
   </div>
   <div class="tab-content" id="tab-rules">
     <div class="rules-panel">
@@ -1225,14 +1221,8 @@ function renderToday() {
   document.getElementById('slider-v3-val').textContent = todayData.v3 || 0;
   document.getElementById('slider-ob-val').textContent = todayData.ob || 0;
 
-  // RS range: "Questions #X – #Y" (sequential from oldest)
-  const totalRsDone = state.rsDone || 0;
-  const todayRsVal = parseInt(todayData.rs) || 0;
-  const rsFrom = totalRsDone - todayRsVal + 1;
-  const rsTo = totalRsDone || rsFrom;
-  document.getElementById('rs-range-info').textContent = todayRsVal > 0
-    ? `Questions #${rsFrom} – #${rsTo}`
-    : `Next up: Question #${totalRsDone + 1}`;
+  // RS source label (from phase in WEEKS data)
+  document.getElementById('rs-range-info').textContent = w.rsSource || '';
 
   // V3 section label
   document.getElementById('v3-section-label').textContent = `Vol 3 — ${w.v3focus}`;
@@ -1330,40 +1320,6 @@ function renderWeeks() {
 }
 
 // ============================================================
-// RENDER: DAILY LOG
-// ============================================================
-function renderDailyLog() {
-  const t = today();
-  document.getElementById('daily-log-container').innerHTML = WEEKS.map(w => {
-    const start = new Date(w.start);
-    const end = new Date(w.end);
-    const days = [];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(new Date(d));
-    const cells = days.map(d => {
-      const k = dateKey(d);
-      const isToday = d.getTime() === t.getTime();
-      const dd = state.daily[k] || {};
-      return `
-        <div class="dl-cell ${isToday ? 'today' : ''}">
-          <div class="dl-day">${DAY_NAMES[d.getDay()]}</div>
-          <div class="dl-date">${d.getDate()}</div>
-          <input class="dl-input" placeholder="RS" value="${dd.rs || ''}" onchange="updateDaily('${k}','rs',this.value)">
-          <input class="dl-input" placeholder="V3" value="${dd.v3 || ''}" onchange="updateDaily('${k}','v3',this.value)">
-          <input class="dl-input" placeholder="OB" value="${dd.ob || ''}" onchange="updateDaily('${k}','ob',this.value)">
-          <input class="dl-input" placeholder="Ch" value="${dd.ch || ''}" onchange="updateDaily('${k}','ch',this.value)">
-        </div>`;
-    }).join('');
-    const cpRs = typeof w.checkpoint.rs === 'number' ? w.checkpoint.rs : 'clear';
-    const cpV3 = typeof w.checkpoint.v3 === 'number' ? w.checkpoint.v3 : 'clear';
-    return `
-      <div class="dl-week">
-        <div class="dl-week-title">Week ${w.num} &mdash; ${w.focus}</div>
-        <div class="dl-week-meta">${w.start} \u2192 ${w.end} &nbsp;|&nbsp; Checkpoint: RS=${cpRs} V3=${cpV3} OB=${w.checkpoint.ob || 0} Ch=${w.checkpoint.ch}</div>
-        <div class="dl-grid">${cells}</div>
-      </div>`;
-  }).join('');
-}
-
 // ============================================================
 // RENDER: RULES
 // ============================================================
@@ -1639,7 +1595,6 @@ document.querySelectorAll('.tab').forEach(tab => {
 function renderAll() {
   renderToday();
   renderWeeks();
-  renderDailyLog();
   renderRules();
   renderErrorLog();
 }
