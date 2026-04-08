@@ -874,7 +874,7 @@
         <div class="bank-slider">
           <div class="bank-name">Orthobullets</div>
           <input type="range" class="slider-input ob-slider" id="slider-ob" min="0" max="3000" value="0"
-            oninput="onBankSlide('ob', this.value, 3000)">
+            oninput="onBankSlide('ob', +this.value, 3000)" onchange="onBankSlideCommit()">
           <div class="bank-count" id="slider-ob-count">0 / 3,000</div>
         </div>
       </div>
@@ -1267,7 +1267,7 @@ function renderToday() {
     return `
       <div class="bank-slider ${done ? 'done' : ''}" data-type="rs" data-key="${b.key}">
         <div class="bank-name">${b.name}</div>
-        <input type="range" min="0" max="${b.total}" value="${v}" oninput="onBankSlide('${b.key}', +this.value, ${b.total}, 'rs')">
+        <input type="range" min="0" max="${b.total}" value="${v}" oninput="onBankSlide('${b.key}', +this.value, ${b.total}, 'rs')" onchange="onBankSlideCommit()">
         <div class="bank-count">${v} / ${b.total}</div>
       </div>`;
   }).join('');
@@ -1281,7 +1281,7 @@ function renderToday() {
     return `
       <div class="bank-slider ${done ? 'done' : ''}" data-type="v3" data-key="${c.key}">
         <div class="bank-name">${c.name}</div>
-        <input type="range" min="0" max="${c.total}" value="${v}" oninput="onBankSlide('${c.key}', +this.value, ${c.total}, 'v3')">
+        <input type="range" min="0" max="${c.total}" value="${v}" oninput="onBankSlide('${c.key}', +this.value, ${c.total}, 'v3')" onchange="onBankSlideCommit()">
         <div class="bank-count">${v} / ${c.total}</div>
       </div>`;
   }).join('');
@@ -1586,22 +1586,42 @@ function toggleCh(key, el) {
 }
 
 function onBankSlide(bankKey, value, total, category) {
-  // category inferred for OB
+  // Lightweight: update count label + state only, NO full re-render (keeps drag smooth)
   if (!category) category = bankKey === 'ob' ? 'ob' : (bankKey.startsWith('v3_') ? 'v3' : 'rs');
   const oldVal = state.banks[bankKey] || 0;
   const delta = value - oldVal;
   state.banks[bankKey] = value;
 
-  // Add delta to today's daily count for this category
   const dk = dateKey(today());
   if (!state.daily[dk]) state.daily[dk] = {};
   state.daily[dk][category] = Math.max(0, (parseInt(state.daily[dk][category]) || 0) + delta);
 
-  // Recompute cumulative totals from banks (source of truth)
   state.rsDone = RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
   state.v3Done = V3_CHAPTERS.reduce((s, c) => s + (state.banks[c.key] || 0), 0);
   state.obDone = state.banks.ob || 0;
 
+  // Update just this slider's count label + its done class
+  const slider = document.querySelector(`.bank-slider[data-key="${bankKey}"]`);
+  if (slider) {
+    const countEl = slider.querySelector('.bank-count');
+    if (countEl) countEl.textContent = `${value.toLocaleString()} / ${total.toLocaleString()}`;
+    slider.classList.toggle('done', value >= total);
+  } else if (bankKey === 'ob') {
+    document.getElementById('slider-ob-count').textContent = `${value.toLocaleString()} / ${OB_TOTAL.toLocaleString()}`;
+  }
+
+  // Update section headers
+  if (category === 'rs') {
+    document.getElementById('rs-total-desc').textContent = `${state.rsDone.toLocaleString()} / ${RS_TOTAL.toLocaleString()}`;
+  } else if (category === 'v3') {
+    document.getElementById('v3-total-desc').textContent = `${state.v3Done} / ${V3_TOTAL}`;
+  } else {
+    document.getElementById('ob-total-desc').textContent = `${state.obDone.toLocaleString()} / ${OB_TOTAL.toLocaleString()}`;
+  }
+}
+
+function onBankSlideCommit() {
+  // Fired on 'change' (release). Persists + does full re-render to update today/week bars.
   save(state);
   renderToday();
 }
