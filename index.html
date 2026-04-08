@@ -319,6 +319,27 @@
     font-size: 11px; color: var(--text-muted);
     font-family: 'JetBrains Mono', monospace;
   }
+  .log-today-day-wrap {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .log-date-picker {
+    background: var(--bg-input); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    outline: none; cursor: pointer;
+    color-scheme: dark;
+  }
+  .log-date-picker:focus { border-color: var(--accent-border); }
+  .log-today-reset {
+    background: none; border: 1px solid var(--border-hover);
+    color: var(--accent); padding: 6px 10px; border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-weight: 700; letter-spacing: 1px; cursor: pointer;
+  }
+  .log-today-reset:hover { background: rgba(0,212,149,0.1); }
+  .log-today.past-day .log-today-title::after {
+    content: ' \00b7 BACKFILL'; color: var(--warn); font-size: 12px;
+  }
   .slider-row {
     display: flex; align-items: center; gap: 16px;
     padding: 12px 0;
@@ -774,7 +795,10 @@
   <div class="log-today" id="log-today">
     <div class="log-today-head">
       <div class="log-today-title">Today's Protocol</div>
-      <div class="log-today-day" id="log-today-day"></div>
+      <div class="log-today-day-wrap">
+        <input type="date" id="log-date-picker" class="log-date-picker" onchange="onDateChange(this.value)">
+        <button class="log-today-reset" onclick="resetLogDate()" title="Back to today">TODAY</button>
+      </div>
     </div>
 
     <div id="log-today-targets">
@@ -1036,15 +1060,18 @@ if (!state.notes) state.notes = {};
 function today() { const d = new Date(); d.setHours(0,0,0,0); return d; }
 function dateKey(d) { return d.toISOString().slice(0,10); }
 
-function getCurrentWeek() {
-  const t = today();
+function getWeekForDate(d) {
   for (const w of WEEKS) {
     const s = new Date(w.start); s.setHours(0,0,0,0);
     const e = new Date(w.end); e.setHours(23,59,59,999);
-    if (t >= s && t <= e) return w;
+    if (d >= s && d <= e) return w;
   }
-  if (t < new Date('2026-03-21')) return WEEKS[0];
+  if (d < new Date('2026-03-21')) return WEEKS[0];
   return WEEKS[WEEKS.length - 1];
+}
+
+function getCurrentWeek() {
+  return getWeekForDate(today());
 }
 
 function daysLeft() {
@@ -1057,11 +1084,35 @@ function checkedCount() { return Object.values(state.chapters).filter(Boolean).l
 // ============================================================
 // RENDER: TODAY HERO
 // ============================================================
-function renderToday() {
-  const w = getCurrentWeek();
+let logDate = null; // null = today, otherwise Date object for backfill
+
+function getLogDate() {
+  return logDate || today();
+}
+
+function onDateChange(val) {
+  if (!val) return;
+  const picked = new Date(val + 'T00:00:00');
   const t = today();
-  const dk = dateKey(t);
+  logDate = (picked.getTime() === t.getTime()) ? null : picked;
+  renderToday();
+}
+
+function resetLogDate() {
+  logDate = null;
+  renderToday();
+}
+
+function renderToday() {
+  const t = today();
+  const ld = getLogDate();
+  const w = getWeekForDate(ld);
+  const dk = dateKey(ld);
+  const isPast = logDate !== null;
   const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+  document.getElementById('log-today').classList.toggle('past-day', isPast);
+  const picker = document.getElementById('log-date-picker');
+  if (picker) picker.value = dk;
 
   document.getElementById('today-date').textContent = t.toLocaleDateString('en-US', opts).toUpperCase();
   document.getElementById('today-focus').textContent = w.focus;
@@ -1208,8 +1259,7 @@ function renderToday() {
     </div>
   `;
 
-  // Slider init: load today's values
-  document.getElementById('log-today-day').textContent = t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+  // Slider init: load values for the current log date
   const todayData = state.daily[dk] || {};
   const sliderRs = document.getElementById('slider-rs');
   const sliderV3 = document.getElementById('slider-v3');
