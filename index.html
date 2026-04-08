@@ -348,6 +348,44 @@
   .slider-input.accent-slider::-moz-range-thumb { background: var(--accent); }
   .slider-input.warn-slider::-moz-range-thumb { background: var(--warn); }
   .slider-input.ob-slider::-moz-range-thumb { background: var(--blue); }
+  .bank-slider {
+    display: grid;
+    grid-template-columns: 140px 1fr 100px;
+    align-items: center; gap: 14px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+  }
+  .bank-slider:first-child { border-top: none; }
+  .bank-name {
+    font-size: 12px; color: var(--text-dim); font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .bank-slider input[type=range] {
+    width: 100%; height: 4px;
+    -webkit-appearance: none; appearance: none;
+    background: var(--border); border-radius: 2px; outline: none;
+  }
+  .bank-slider input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    cursor: pointer; border: 2px solid #000;
+  }
+  .bank-slider input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    cursor: pointer; border: 2px solid #000;
+  }
+  .bank-slider[data-type=rs] input::-webkit-slider-thumb { background: var(--accent); }
+  .bank-slider[data-type=rs] input::-moz-range-thumb { background: var(--accent); }
+  .bank-slider[data-type=v3] input::-webkit-slider-thumb { background: var(--warn); }
+  .bank-slider[data-type=v3] input::-moz-range-thumb { background: var(--warn); }
+  .bank-slider[data-type=ob] input::-webkit-slider-thumb { background: var(--blue); }
+  .bank-slider[data-type=ob] input::-moz-range-thumb { background: var(--blue); }
+  .bank-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text); font-weight: 700;
+    text-align: right;
+  }
+  .bank-slider.done .bank-count { color: var(--accent); }
   .slider-val {
     font-family: 'JetBrains Mono', monospace;
     font-size: 22px; font-weight: 700; width: 56px;
@@ -781,25 +819,14 @@
       <!-- daily targets rendered here -->
     </div>
 
-    <!-- STEP 1: REVIEW -->
+    <!-- STEP 1: REVIEW - ResStudy banks -->
     <div class="r-step">
       <div class="r-step-head">
         <div class="r-step-num">1</div>
-        <div class="r-step-name">Review</div>
-        <div class="r-step-desc">ResStudy — all topics, oldest first</div>
+        <div class="r-step-name">ResStudy</div>
+        <div class="r-step-desc" id="rs-total-desc">0 / 1,660</div>
       </div>
-      <div class="r-step-body">
-        <div class="r-range-info" id="rs-range-info"></div>
-        <div class="slider-row">
-          <div class="slider-label">Done today</div>
-          <div class="slider-wrap">
-            <input type="range" class="slider-input accent-slider" id="slider-rs" min="0" max="200" value="0"
-              oninput="onSlider('rs', this.value)">
-          </div>
-          <div class="slider-val accent" id="slider-rs-val">0</div>
-          <div class="slider-max">/ 200</div>
-        </div>
-      </div>
+      <div class="r-step-body" id="rs-banks-container"></div>
     </div>
 
     <!-- STEP 2: READ -->
@@ -814,24 +841,14 @@
       </div>
     </div>
 
-    <!-- STEP 3: REINFORCE -->
+    <!-- STEP 3: REINFORCE - V3 chapters -->
     <div class="r-step">
       <div class="r-step-head">
         <div class="r-step-num">3</div>
-        <div class="r-step-name">Reinforce</div>
-        <div class="r-step-desc" id="v3-section-label">Vol 3 — current section</div>
+        <div class="r-step-name">Volume 3</div>
+        <div class="r-step-desc" id="v3-total-desc">0 / 480</div>
       </div>
-      <div class="r-step-body">
-        <div class="slider-row">
-          <div class="slider-label">Done today</div>
-          <div class="slider-wrap">
-            <input type="range" class="slider-input warn-slider" id="slider-v3" min="0" max="200" value="0"
-              oninput="onSlider('v3', this.value)">
-          </div>
-          <div class="slider-val warn" id="slider-v3-val">0</div>
-          <div class="slider-max">/ 200</div>
-        </div>
-      </div>
+      <div class="r-step-body" id="v3-chapters-container"></div>
     </div>
 
     <!-- STEP 4: REFLECT -->
@@ -851,17 +868,14 @@
       <div class="r-step-head">
         <div class="r-step-num">5</div>
         <div class="r-step-name">Orthobullets</div>
-        <div class="r-step-desc">~5,000 Qs — bonus bank, no fixed target, log what you do</div>
+        <div class="r-step-desc" id="ob-total-desc">0 / 3,000</div>
       </div>
       <div class="r-step-body">
-        <div class="slider-row">
-          <div class="slider-label">Done today</div>
-          <div class="slider-wrap">
-            <input type="range" class="slider-input ob-slider" id="slider-ob" min="0" max="200" value="0"
-              oninput="onSlider('ob', this.value)">
-          </div>
-          <div class="slider-val" id="slider-ob-val" style="color:var(--blue)">0</div>
-          <div class="slider-max">/ 200</div>
+        <div class="bank-slider">
+          <div class="bank-name">Orthobullets</div>
+          <input type="range" class="slider-input ob-slider" id="slider-ob" min="0" max="3000" value="0"
+            oninput="onBankSlide('ob', this.value, 3000)">
+          <div class="bank-count" id="slider-ob-count">0 / 3,000</div>
         </div>
       </div>
     </div>
@@ -895,14 +909,14 @@
     <div class="prog-card">
       <div class="prog-head">
         <div class="prog-title">ResStudy New Qs</div>
-        <div class="prog-count"><span id="p-rs">0</span> / 3,851</div>
+        <div class="prog-count"><span id="p-rs">0</span> / 1,660</div>
       </div>
       <div class="prog-bar"><div class="prog-fill accent" id="p-rs-bar" style="width:0%"></div></div>
     </div>
     <div class="prog-card">
       <div class="prog-head">
         <div class="prog-title">Volume 3 Qs</div>
-        <div class="prog-count"><span id="p-v3">0</span> / 500</div>
+        <div class="prog-count"><span id="p-v3">0</span> / 480</div>
       </div>
       <div class="prog-bar"><div class="prog-fill warn" id="p-v3-bar" style="width:0%"></div></div>
     </div>
@@ -1005,6 +1019,34 @@ const WEEKS = [
 ];
 
 const SECTIONS = ['Shoulder/Elbow','Pediatrics','Oncology','Hand/Wrist','Trauma','General Knowledge','Basic Science','Foot/Ankle','Sports','Hip/Knee','Spine'];
+
+const RS_BANKS = [
+  { key: 'oku13',    name: 'OKU 13',     total: 200 },
+  { key: 'oku14',    name: 'OKU 14',     total: 200 },
+  { key: 'oite2020', name: 'OITE 2020',  total: 215 },
+  { key: 'oite2021', name: 'OITE 2021',  total: 213 },
+  { key: 'oite2022', name: 'OITE 2022',  total: 207 },
+  { key: 'oite2023', name: 'OITE 2023',  total: 213 },
+  { key: 'oite2024', name: 'OITE 2024',  total: 202 },
+  { key: 'oite2025', name: 'OITE 2025',  total: 210 },
+];
+
+const V3_CHAPTERS = [
+  { key: 'v3_152', name: 'Ch 152 Spine',                    total: 48 },
+  { key: 'v3_153', name: 'Ch 153 Hand & Wrist',             total: 48 },
+  { key: 'v3_154', name: 'Ch 154 Total Joint/Arthroplasty', total: 48 },
+  { key: 'v3_155', name: 'Ch 155 Basic Science',            total: 48 },
+  { key: 'v3_156', name: 'Ch 156 Shoulder & Elbow',         total: 48 },
+  { key: 'v3_157', name: 'Ch 157 Trauma',                   total: 48 },
+  { key: 'v3_158', name: 'Ch 158 Foot & Ankle',             total: 48 },
+  { key: 'v3_159', name: 'Ch 159 Sports Medicine',          total: 48 },
+  { key: 'v3_160', name: 'Ch 160 Pediatrics',               total: 48 },
+  { key: 'v3_161', name: 'Ch 161 Oncology',                 total: 48 },
+];
+
+const RS_TOTAL = RS_BANKS.reduce((s, b) => s + b.total, 0); // 1660
+const V3_TOTAL = V3_CHAPTERS.reduce((s, c) => s + c.total, 0); // 480
+const OB_TOTAL = 3000;
 const HARD_RULES = [
   'Questions count only if reviewed the same day.',
   'Guessed-right counts as wrong in the error log.',
@@ -1028,7 +1070,9 @@ if (!state.daily) state.daily = {};
 if (!state.errorBank) state.errorBank = [];
 if (!state.rsDone) state.rsDone = 0;
 if (!state.v3Done) state.v3Done = 0;
+if (!state.obDone) state.obDone = 0;
 if (!state.notes) state.notes = {};
+if (!state.banks) state.banks = {};
 
 // ============================================================
 // HELPERS
@@ -1154,7 +1198,7 @@ function renderToday() {
   const todayDone = rsOk && v3Ok;
 
   // Overall progress (OB is bonus, not in core target)
-  const totalQs = 3851 + 500;
+  const totalQs = RS_TOTAL + V3_TOTAL;
   const totalDone = (state.rsDone || 0) + (state.v3Done || 0);
   const overallPct = Math.round((totalDone / totalQs) * 100);
 
@@ -1211,24 +1255,48 @@ function renderToday() {
     </div>
   `;
 
-  // Slider init: load today's values
+  // Header day label
   document.getElementById('log-today-day').textContent = t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
-  const todayData = state.daily[dk] || {};
-  const sliderRs = document.getElementById('slider-rs');
-  const sliderV3 = document.getElementById('slider-v3');
-  const sliderOb = document.getElementById('slider-ob');
-  sliderRs.value = todayData.rs || 0;
-  sliderV3.value = todayData.v3 || 0;
-  sliderOb.value = todayData.ob || 0;
-  document.getElementById('slider-rs-val').textContent = todayData.rs || 0;
-  document.getElementById('slider-v3-val').textContent = todayData.v3 || 0;
-  document.getElementById('slider-ob-val').textContent = todayData.ob || 0;
 
-  // RS source label (from phase in WEEKS data)
-  document.getElementById('rs-range-info').textContent = w.rsSource || '';
+  // RS banks: render 8 permanent sliders
+  const rsBanksSum = RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+  document.getElementById('rs-total-desc').textContent = `${rsBanksSum.toLocaleString()} / ${RS_TOTAL.toLocaleString()}`;
+  document.getElementById('rs-banks-container').innerHTML = RS_BANKS.map(b => {
+    const v = state.banks[b.key] || 0;
+    const done = v >= b.total;
+    return `
+      <div class="bank-slider ${done ? 'done' : ''}" data-type="rs" data-key="${b.key}">
+        <div class="bank-name">${b.name}</div>
+        <input type="range" min="0" max="${b.total}" value="${v}" oninput="onBankSlide('${b.key}', +this.value, ${b.total}, 'rs')">
+        <div class="bank-count">${v} / ${b.total}</div>
+      </div>`;
+  }).join('');
 
-  // V3 section label
-  document.getElementById('v3-section-label').textContent = `Vol 3 — ${w.v3focus}`;
+  // V3 chapters: render 10 permanent sliders
+  const v3Sum = V3_CHAPTERS.reduce((s, c) => s + (state.banks[c.key] || 0), 0);
+  document.getElementById('v3-total-desc').textContent = `${v3Sum} / ${V3_TOTAL}`;
+  document.getElementById('v3-chapters-container').innerHTML = V3_CHAPTERS.map(c => {
+    const v = state.banks[c.key] || 0;
+    const done = v >= c.total;
+    return `
+      <div class="bank-slider ${done ? 'done' : ''}" data-type="v3" data-key="${c.key}">
+        <div class="bank-name">${c.name}</div>
+        <input type="range" min="0" max="${c.total}" value="${v}" oninput="onBankSlide('${c.key}', +this.value, ${c.total}, 'v3')">
+        <div class="bank-count">${v} / ${c.total}</div>
+      </div>`;
+  }).join('');
+
+  // OB single slider
+  const obVal = state.banks.ob || 0;
+  document.getElementById('ob-total-desc').textContent = `${obVal.toLocaleString()} / ${OB_TOTAL.toLocaleString()}`;
+  const obSlider = document.getElementById('slider-ob');
+  if (obSlider) {
+    obSlider.value = obVal;
+    document.getElementById('slider-ob-count').textContent = `${obVal.toLocaleString()} / ${OB_TOTAL.toLocaleString()}`;
+    obSlider.closest('.bank-slider').setAttribute('data-type', 'ob');
+  }
+
+  // Read step description
   document.getElementById('r-read-desc').textContent = w.focus;
 
   // Today's chapters inside LOG TODAY
@@ -1262,9 +1330,9 @@ function renderToday() {
 
   // Progress bars
   document.getElementById('p-rs').textContent = state.rsDone || 0;
-  document.getElementById('p-rs-bar').style.width = Math.min(100, ((state.rsDone || 0) / 3851) * 100) + '%';
+  document.getElementById('p-rs-bar').style.width = Math.min(100, ((state.rsDone || 0) / RS_TOTAL) * 100) + '%';
   document.getElementById('p-v3').textContent = state.v3Done || 0;
-  document.getElementById('p-v3-bar').style.width = Math.min(100, ((state.v3Done || 0) / 500) * 100) + '%';
+  document.getElementById('p-v3-bar').style.width = Math.min(100, ((state.v3Done || 0) / V3_TOTAL) * 100) + '%';
   document.getElementById('p-ob').textContent = state.obDone || 0;
   document.getElementById('p-ob-bar').style.width = Math.min(100, ((state.obDone || 0) / 3000) * 100) + '%';
   document.getElementById('p-ch').textContent = ch;
@@ -1517,20 +1585,23 @@ function toggleCh(key, el) {
   renderWeeks();
 }
 
-function onSlider(field, value) {
-  const dk = dateKey(today());
-  document.getElementById(`slider-${field}-val`).textContent = value;
-  updateDaily(dk, field, value);
-}
+function onBankSlide(bankKey, value, total, category) {
+  // category inferred for OB
+  if (!category) category = bankKey === 'ob' ? 'ob' : (bankKey.startsWith('v3_') ? 'v3' : 'rs');
+  const oldVal = state.banks[bankKey] || 0;
+  const delta = value - oldVal;
+  state.banks[bankKey] = value;
 
-function updateDaily(dk, field, value) {
+  // Add delta to today's daily count for this category
+  const dk = dateKey(today());
   if (!state.daily[dk]) state.daily[dk] = {};
-  state.daily[dk][field] = value;
-  let rs = 0, v3 = 0, ob = 0;
-  Object.values(state.daily).forEach(d => { rs += parseInt(d.rs) || 0; v3 += parseInt(d.v3) || 0; ob += parseInt(d.ob) || 0; });
-  state.rsDone = rs;
-  state.v3Done = v3;
-  state.obDone = ob;
+  state.daily[dk][category] = Math.max(0, (parseInt(state.daily[dk][category]) || 0) + delta);
+
+  // Recompute cumulative totals from banks (source of truth)
+  state.rsDone = RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+  state.v3Done = V3_CHAPTERS.reduce((s, c) => s + (state.banks[c.key] || 0), 0);
+  state.obDone = state.banks.ob || 0;
+
   save(state);
   renderToday();
 }
