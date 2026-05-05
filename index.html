@@ -356,6 +356,21 @@
     border-top: 1px solid var(--border);
   }
   .bank-slider:first-child { border-top: none; }
+  .bank-section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700; letter-spacing: 2px;
+    color: var(--text-muted); text-transform: uppercase;
+    padding: 18px 0 6px;
+    border-top: 1px solid var(--border-hover);
+    margin-top: 6px;
+  }
+  .bank-section-label:first-child {
+    border-top: none; margin-top: 0; padding-top: 4px;
+  }
+  .bank-section-hint {
+    color: var(--warn); font-weight: 500; font-size: 9px;
+    letter-spacing: 1px; margin-left: 8px;
+  }
   .bank-name {
     font-size: 12px; color: var(--text-dim); font-weight: 600;
     font-family: 'JetBrains Mono', monospace;
@@ -1031,6 +1046,23 @@ const RS_BANKS = [
   { key: 'oite2025', name: 'OITE 2025',  total: 210 },
 ];
 
+// Topic banks (mop-up after year banks). Same questions are tagged by topic too,
+// so user logs ONLY new topic-only questions here (don't double-log year bank Qs).
+const RS_TOPIC_BANKS = [
+  { key: 'topic_recon',    name: 'Adult Recon',      total: 434 },
+  { key: 'topic_foot',     name: 'Foot & Ankle',     total: 427 },
+  { key: 'topic_trauma',   name: 'Trauma',           total: 551 },
+  { key: 'topic_shoulder', name: 'Shoulder/Elbow',   total: 325 },
+  { key: 'topic_hand',     name: 'Hand & Wrist',     total: 328 },
+  { key: 'topic_peds',     name: 'Pediatrics',       total: 513 },
+  { key: 'topic_spine',    name: 'Adult Spine',      total: 480 },
+  { key: 'topic_tumor',    name: 'MSK Tumors',       total: 216 },
+  { key: 'topic_sports',   name: 'Sports Medicine',  total: 313 },
+  { key: 'topic_anatomy',  name: 'Anatomy/Imaging',  total: 70  },
+  { key: 'topic_basic',    name: 'Basic Science',    total: 215 },
+  { key: 'topic_misc',     name: 'Miscellaneous',    total: 45  },
+];
+
 const V3_CHAPTERS = [
   { key: 'v3_152', name: 'Ch 152 Spine',                    total: 48 },
   { key: 'v3_153', name: 'Ch 153 Hand & Wrist',             total: 48 },
@@ -1044,7 +1076,9 @@ const V3_CHAPTERS = [
   { key: 'v3_161', name: 'Ch 161 Oncology',                 total: 48 },
 ];
 
-const RS_TOTAL = RS_BANKS.reduce((s, b) => s + b.total, 0); // 1660
+const RS_YEAR_TOTAL = RS_BANKS.reduce((s, b) => s + b.total, 0); // 1660
+const RS_TOPIC_TOTAL = RS_TOPIC_BANKS.reduce((s, b) => s + b.total, 0); // 3917
+const RS_TOTAL = RS_YEAR_TOTAL + RS_TOPIC_TOTAL; // 5577 max if no overlap (overlap is user-managed)
 const V3_TOTAL = V3_CHAPTERS.reduce((s, c) => s + c.total, 0); // 480
 const OB_TOTAL = 3000;
 const HARD_RULES = [
@@ -1258,10 +1292,13 @@ function renderToday() {
   // Header day label
   document.getElementById('log-today-day').textContent = t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
 
-  // RS banks: render 8 permanent sliders
-  const rsBanksSum = RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+  // RS year banks (8 permanent sliders) + topic mop-up banks (12 sliders)
+  const rsYearSum = RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+  const rsTopicSum = RS_TOPIC_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+  const rsBanksSum = rsYearSum + rsTopicSum;
   document.getElementById('rs-total-desc').textContent = `${rsBanksSum.toLocaleString()} / ${RS_TOTAL.toLocaleString()}`;
-  document.getElementById('rs-banks-container').innerHTML = RS_BANKS.map(b => {
+
+  const renderBankRow = (b) => {
     const v = state.banks[b.key] || 0;
     const done = v >= b.total;
     return `
@@ -1270,7 +1307,14 @@ function renderToday() {
         <input type="range" min="0" max="${b.total}" value="${v}" oninput="onBankSlide('${b.key}', +this.value, ${b.total}, 'rs')" onchange="onBankSlideCommit()">
         <div class="bank-count">${v} / ${b.total}</div>
       </div>`;
-  }).join('');
+  };
+
+  document.getElementById('rs-banks-container').innerHTML = `
+    <div class="bank-section-label">YEAR BANKS &middot; ${rsYearSum} / ${RS_YEAR_TOTAL}</div>
+    ${RS_BANKS.map(renderBankRow).join('')}
+    <div class="bank-section-label">TOPIC MOP-UP &middot; ${rsTopicSum} / ${RS_TOPIC_TOTAL} <span class="bank-section-hint">don't double-log year bank Qs</span></div>
+    ${RS_TOPIC_BANKS.map(renderBankRow).join('')}
+  `;
 
   // V3 chapters: render 10 permanent sliders
   const v3Sum = V3_CHAPTERS.reduce((s, c) => s + (state.banks[c.key] || 0), 0);
@@ -1596,7 +1640,9 @@ function onBankSlide(bankKey, value, total, category) {
   if (!state.daily[dk]) state.daily[dk] = {};
   state.daily[dk][category] = Math.max(0, (parseInt(state.daily[dk][category]) || 0) + delta);
 
-  state.rsDone = RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+  state.rsDone =
+    RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0) +
+    RS_TOPIC_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
   state.v3Done = V3_CHAPTERS.reduce((s, c) => s + (state.banks[c.key] || 0), 0);
   state.obDone = state.banks.ob || 0;
 
@@ -1613,6 +1659,12 @@ function onBankSlide(bankKey, value, total, category) {
   // Update section headers
   if (category === 'rs') {
     document.getElementById('rs-total-desc').textContent = `${state.rsDone.toLocaleString()} / ${RS_TOTAL.toLocaleString()}`;
+    // Update inline year/topic sub-totals if visible
+    const yearSum = RS_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+    const topicSum = RS_TOPIC_BANKS.reduce((s, b) => s + (state.banks[b.key] || 0), 0);
+    const labels = document.querySelectorAll('#rs-banks-container .bank-section-label');
+    if (labels[0]) labels[0].firstChild && (labels[0].childNodes[0].nodeValue = `YEAR BANKS · ${yearSum} / ${RS_YEAR_TOTAL} `);
+    if (labels[1]) labels[1].childNodes[0].nodeValue = `TOPIC MOP-UP · ${topicSum} / ${RS_TOPIC_TOTAL} `;
   } else if (category === 'v3') {
     document.getElementById('v3-total-desc').textContent = `${state.v3Done} / ${V3_TOTAL}`;
   } else {
