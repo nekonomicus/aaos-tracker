@@ -1,6 +1,0 @@
-services:
-  - type: web
-    name: chf-converter
-    runtime: static
-    staticPublishPath: ./converter
-    autoDeploy: true
