@@ -31,6 +31,7 @@
 <body>
 <main>
   <div class="row"><label for="CHF">CHF</label><input id="CHF" inputmode="decimal" autocomplete="off" placeholder="0" autofocus></div>
+  <div class="row"><label for="EUR">EUR</label><input id="EUR" inputmode="decimal" autocomplete="off" placeholder="0"></div>
   <div class="row"><label for="JPY">JPY</label><input id="JPY" inputmode="decimal" autocomplete="off" placeholder="0"></div>
   <div class="row"><label for="KRW">KRW</label><input id="KRW" inputmode="decimal" autocomplete="off" placeholder="0"></div>
   <footer id="status">loading rates…</footer>
@@ -41,33 +42,33 @@
   const status = $('status');
   let rates = { CHF: 1 }; // per 1 CHF
 
-  const saved = localStorage.getItem('chfrates');
+  const saved = localStorage.getItem('chfrates2');
   if (saved) apply(JSON.parse(saved));
 
-  fetch('https://api.frankfurter.dev/v1/latest?base=CHF&symbols=JPY,KRW')
+  fetch('https://api.frankfurter.dev/v1/latest?base=CHF&symbols=EUR,JPY,KRW')
     .then(r => r.json())
     .catch(() => fetch('https://open.er-api.com/v6/latest/CHF').then(r => r.json())
-      .then(d => ({ date: d.time_last_update_utc.slice(5, 16), rates: { JPY: d.rates.JPY, KRW: d.rates.KRW } })))
-    .then(d => { localStorage.setItem('chfrates', JSON.stringify(d)); apply(d); })
+      .then(d => ({ date: d.time_last_update_utc.slice(5, 16), rates: { EUR: d.rates.EUR, JPY: d.rates.JPY, KRW: d.rates.KRW } })))
+    .then(d => { localStorage.setItem('chfrates2', JSON.stringify(d)); apply(d); })
     .catch(() => { if (!saved) status.textContent = 'offline — no rates'; });
 
   function apply(d) {
     rates = { CHF: 1, ...d.rates };
-    status.textContent = `1 CHF = ${d.rates.JPY} JPY = ${d.rates.KRW} KRW · ${d.date}`;
+    status.textContent = `1 CHF = ${d.rates.EUR} EUR = ${d.rates.JPY} JPY = ${d.rates.KRW} KRW · ${d.date}`;
   }
 
   function fmt(n, cur) {
     if (!isFinite(n)) return '';
-    return cur === 'CHF'
+    return cur === 'CHF' || cur === 'EUR'
       ? (Math.round(n * 100) / 100).toString()
       : Math.round(n).toString();
   }
 
-  for (const id of ['CHF', 'JPY', 'KRW']) {
+  for (const id of ['CHF', 'EUR', 'JPY', 'KRW']) {
     $(id).addEventListener('input', () => {
       const v = parseFloat($(id).value.replace(',', '.'));
       const chf = v / rates[id];
-      for (const other of ['CHF', 'JPY', 'KRW']) {
+      for (const other of ['CHF', 'EUR', 'JPY', 'KRW']) {
         if (other === id) continue;
         $(other).value = $(id).value === '' || !isFinite(chf) ? '' : fmt(chf * rates[other], other);
       }
