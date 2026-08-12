@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Markets</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23000'/%3E%3Crect x='10' y='28' width='28' height='8' rx='4' fill='%23fff'/%3E%3Crect x='44' y='14' width='3' height='36' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { background: #000; }
+
+  body {
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    justify-content: center;
+  }
+
+  main {
+    width: 100%;
+    max-width: 560px;
+    padding: calc(env(safe-area-inset-top, 0px) + 28px) 22px calc(env(safe-area-inset-bottom, 0px) + 28px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  header { text-align: center; margin-bottom: 44px; }
+
+  #clock {
+    font-size: clamp(64px, 21vw, 104px);
+    font-weight: 200;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #date {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.34em;
+    text-indent: 0.34em; /* balances the letter-spacing so the line centers optically */
+    color: #6e6e6e;
+    text-transform: uppercase;
+  }
+
+  #chart { position: relative; }
+
+  .row { margin-bottom: 32px; }
+  .row:last-child { margin-bottom: 0; }
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: clamp(21px, 6vw, 28px);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+    color: #5c5c5c;
+    transition: color 0.4s;
+  }
+
+  .row.open .name { color: #fff; }
+
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #fff;
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+
+  .row.open .dot { opacity: 1; animation: pulse 2.4s ease-in-out infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+
+  .track {
+    position: relative;
+    height: 20px;
+    border-radius: 6px;
+    background-color: #131313;
+    /* quarter-day ticks at 06 / 12 / 18, behind the bands */
+    background-image:
+      linear-gradient(#282828, #282828),
+      linear-gradient(#282828, #282828),
+      linear-gradient(#282828, #282828);
+    background-size: 1px 100%;
+    background-repeat: no-repeat;
+    background-position: 25% 0, 50% 0, 75% 0;
+    overflow: hidden;
+  }
+
+  .band {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-radius: 6px;
+    background: #3d3d3d;
+    transition: background 0.4s;
+  }
+
+  .row.open .band { background: #fff; }
+
+  /* the shared "now" line — inverts over whatever it crosses */
+  #now {
+    position: absolute;
+    top: -10px;
+    bottom: -10px;
+    width: 2px;
+    margin-left: -1px;
+    background: #fff;
+    mix-blend-mode: difference;
+    pointer-events: none;
+  }
+
+  #axis {
+    position: relative;
+    height: 18px;
+    margin-top: 14px;
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.08em;
+    color: #4a4a4a;
+  }
+
+  #axis span { position: absolute; transform: translateX(-50%); }
+  #axis span:first-child { left: 0; transform: none; }
+  #axis span:last-child { left: auto; right: 0; transform: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div id="clock">--:--</div>
+    <div id="date"></div>
+  </header>
+
+  <div id="chart">
+    <div id="now"></div>
+  </div>
+
+  <div id="axis">
+    <span>00</span>
+    <span style="left:25%">06</span>
+    <span style="left:50%">12</span>
+    <span style="left:75%">18</span>
+    <span>24</span>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var DAY = 86400000;
+
+  // sessions are minutes-from-midnight in the market's own timezone
+  var MARKETS = [
+    { name: 'JAPAN',   tz: 'Asia/Tokyo',       sessions: [[540, 690], [750, 930]] }, // 9:00–11:30, 12:30–15:30
+    { name: 'KOREA',   tz: 'Asia/Seoul',       sessions: [[540, 930]] },             // 9:00–15:30
+    { name: 'TAIWAN',  tz: 'Asia/Taipei',      sessions: [[540, 810]] },             // 9:00–13:30
+    { name: 'GERMANY', tz: 'Europe/Berlin',    sessions: [[540, 1050]] },            // 9:00–17:30
+    { name: 'US',      tz: 'America/New_York', sessions: [[570, 960]] }              // 9:30–16:00
+  ];
+
+  var fmtCache = {};
+
+  function partsInTz(tz, date) {
+    var dtf = fmtCache[tz] || (fmtCache[tz] = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }));
+    var map = {};
+    dtf.formatToParts(date).forEach(function (p) { map[p.type] = p.value; });
+    return {
+      y: +map.year, m: +map.month, d: +map.day,
+      hh: +map.hour % 24, mm: +map.minute, ss: +map.second
+    };
+  }
+
+  function tzOffsetMs(tz, date) {
+    var p = partsInTz(tz, date);
+    var wall = Date.UTC(p.y, p.m - 1, p.d, p.hh, p.mm, p.ss);
+    return wall - Math.floor(date.getTime() / 1000) * 1000;
+  }
+
+  // UTC timestamp of a wall-clock moment (minutes after midnight) on a given
+  // calendar day in a given timezone; two passes converge across DST edges
+  function zonedToUtc(tz, y, m, d, minutes) {
+    var wall = Date.UTC(y, m - 1, d) + minutes * 60000;
+    var ts = wall - tzOffsetMs(tz, new Date(wall));
+    return wall - tzOffsetMs(tz, new Date(ts));
+  }
+
+  // all real trading segments (UTC ms) near "now": the market's own
+  // yesterday / today / tomorrow, weekends skipped
+  function marketSegments(market, now) {
+    var p = partsInTz(market.tz, now);
+    var base = Date.UTC(p.y, p.m - 1, p.d);
+    var segs = [];
+    for (var k = -1; k <= 1; k++) {
+      var dt = new Date(base + k * DAY);
+      var wd = dt.getUTCDay();
+      if (wd === 0 || wd === 6) continue;
+      market.sessions.forEach(function (ses) {
+        segs.push({
+          s: zonedToUtc(market.tz, dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate(), ses[0]),
+          e: zonedToUtc(market.tz, dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate(), ses[1])
+        });
+      });
+    }
+    return segs;
+  }
+
+  var chart = document.getElementById('chart');
+  var nowLine = document.getElementById('now');
+  var clockEl = document.getElementById('clock');
+  var dateEl = document.getElementById('date');
+
+  var rows = MARKETS.map(function (market) {
+    var row = document.createElement('div');
+    row.className = 'row';
+
+    var name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = market.name;
+
+    var dot = document.createElement('span');
+    dot.className = 'dot';
+    name.appendChild(dot);
+
+    var track = document.createElement('div');
+    track.className = 'track';
+
+    row.appendChild(name);
+    row.appendChild(track);
+    chart.appendChild(row);
+
+    return { market: market, row: row, track: track, segs: [] };
+  });
+
+  var lastLayoutMinute = -1;
+
+  function layout(now) {
+    var dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    rows.forEach(function (r) {
+      r.segs = marketSegments(r.market, now);
+      r.track.textContent = '';
+      r.segs.forEach(function (seg) {
+        var s = Math.max(seg.s, dayStart);
+        var e = Math.min(seg.e, dayStart + DAY);
+        if (e <= s) return;
+        var band = document.createElement('div');
+        band.className = 'band';
+        band.style.left = ((s - dayStart) / DAY * 100) + '%';
+        band.style.width = ((e - s) / DAY * 100) + '%';
+        r.track.appendChild(band);
+      });
+    });
+  }
+
+  function tick() {
+    var now = new Date();
+    var t = now.getTime();
+
+    var minuteKey = Math.floor(t / 60000);
+    if (minuteKey !== lastLayoutMinute) {
+      lastLayoutMinute = minuteKey;
+      layout(now);
+    }
+
+    var dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    nowLine.style.left = ((t - dayStart) / DAY * 100) + '%';
+
+    clockEl.textContent = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    dateEl.textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+
+    rows.forEach(function (r) {
+      var open = r.segs.some(function (seg) { return t >= seg.s && t < seg.e; });
+      r.row.classList.toggle('open', open);
+    });
+  }
+
+  tick();
+  setInterval(tick, 1000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { lastLayoutMinute = -1; tick(); }
+  });
+})();
+</script>
+</body>
+</html>
