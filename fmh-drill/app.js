@@ -23,7 +23,7 @@
 
   // ───────────────────────── storage ─────────────────────────
   const STORE = 'fmh-drill/v1';
-  const DEFAULTS = { exam: '2026-11-20', rr: 0.9, newPerDay: 25, sessionSize: 30, strict: '0.9', lang: 'de-CH', theme: 'auto', scope: [] };
+  const DEFAULTS = { exam: '2026-11-20', rr: 0.9, newPerDay: 20, sessionSize: 30, strict: '0.9', lang: 'de-CH', theme: 'auto', scope: [] };
   const normalize = (d) => ({
     v: 1,
     mem: d && typeof d.mem === 'object' && d.mem ? d.mem : {},
