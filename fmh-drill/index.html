@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Active-recall drill for the FMH orthopaedics oral exam: classifications, algorithms, anatomy, approaches. Spaced repetition with FSRS-6.">
+<meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)">
+<title>Oral Drill</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111110'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%23f6f6f3' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Oral Drill">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <a class="mark" href="#/" aria-label="Oral Drill home"><span class="dot" aria-hidden="true"></span>Oral Drill</a>
+  <nav class="nav" aria-label="Main">
+    <a href="#/" data-nav="home">Today</a>
+    <a href="#/decks" data-nav="decks">Decks</a>
+    <a href="#/progress" data-nav="progress">Progress</a>
+    <button type="button" class="nav-btn" id="open-settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    </button>
+  </nav>
+</header>
+
+<main id="view" tabindex="-1"></main>
+
+<dialog id="settings" aria-labelledby="settings-title">
+  <form method="dialog" class="settings">
+    <h2 id="settings-title">Settings</h2>
+    <label class="field">
+      <span>Exam date</span>
+      <input type="date" name="exam">
+      <small>Intervals are capped so every card comes back before the exam.</small>
+    </label>
+    <label class="field">
+      <span>Target recall <output name="rrOut"></output></span>
+      <input type="range" name="rr" min="0.80" max="0.97" step="0.01">
+      <small>Higher means more reviews and less forgetting. 0.90 is the evidence-based default; raise it in the final weeks.</small>
+    </label>
+    <label class="field">
+      <span>New cards per day</span>
+      <input type="number" name="newPerDay" min="0" max="200" step="1">
+    </label>
+    <label class="field">
+      <span>Cards per session</span>
+      <input type="number" name="sessionSize" min="5" max="500" step="5">
+    </label>
+    <label class="field">
+      <span>Pass mark per card</span>
+      <select name="strict">
+        <option value="0.9">Strict: 90% of points for Good, 60% to avoid Again</option>
+        <option value="0.8">Standard: 80% for Good, 50% to avoid Again</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Dictation language</span>
+      <select name="lang">
+        <option value="de-CH">Deutsch (Schweiz)</option>
+        <option value="de-DE">Deutsch</option>
+        <option value="en-GB">English</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Theme</span>
+      <select name="theme">
+        <option value="auto">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+    <div class="settings-data">
+      <span>Progress lives in this browser. Back it up or move it to another device:</span>
+      <div class="row">
+        <button type="button" class="btn ghost" id="export">Export</button>
+        <label class="btn ghost file">Import<input type="file" id="import" accept="application/json"></label>
+        <button type="button" class="btn ghost danger" id="reset">Reset</button>
+      </div>
+    </div>
+    <div class="row end">
+      <button class="btn primary" value="save">Done</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="tip" class="tip" role="status" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="fsrs.js"></script>
+<script src="decks.js"></script>
+<script src="cards/shoulder-infection.js"></script>
+<script src="cards/elbow-forearm-wrist.js"></script>
+<script src="cards/knee-soft-tka.js"></script>
+<script src="cards/knee-tibia-trauma.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

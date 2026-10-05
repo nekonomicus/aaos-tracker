@@ -1,0 +1,20 @@
+// Deck metadata. Card files in ./cards push into window.CARDS with a `deck` key from this list.
+window.DECKS = [
+  { key: 'phf',     title: 'Proximal humerus fractures',        region: 'Shoulder', src: 'Proximale-Humerusfrakturen.pptx' },
+  { key: 'bslap',   title: 'Proximal biceps, SLAP & cuff',       region: 'Shoulder', src: 'Prox-Biceps-SLAP.pptx' },
+  { key: 'dbt',     title: 'Distal biceps & triceps',            region: 'Elbow',    src: 'Distal-Bicep-2.pptx' },
+  { key: 'elbow',   title: 'Elbow dislocations & fractures',     region: 'Elbow',    src: 'Luxation-Frakturen-des-Ellenbogens.pptx' },
+  { key: 'forearm', title: 'Forearm shaft fractures',            region: 'Forearm',  src: 'Radiusschaft.pptx' },
+  { key: 'drf',     title: 'Distal radius fractures',            region: 'Wrist',    src: 'Distaler-Radius.pptx + ESTES 2026' },
+  { key: 'menisc',  title: 'Meniscus',                           region: 'Knee',     src: 'Menisceal-tears.pptx' },
+  { key: 'ocd',     title: 'OCD & cartilage',                    region: 'Knee',     src: 'OCD-und-Knorpeldefekte.pptx' },
+  { key: 'acl',     title: 'ACL & PCL',                          region: 'Knee',     src: 'VKB-HKB-Ruptures.pptx' },
+  { key: 'patinst', title: 'Patellar instability',               region: 'Knee',     src: 'Patella-lux.pptx' },
+  { key: 'tka',     title: 'TKA: approaches, alignment, balance',region: 'Knee',     src: 'Knee-Reco.pptx' },
+  { key: 'kd',      title: 'Knee dislocation',                   region: 'Knee',     src: 'Knee-dislocation.pptx + Knienahe-Frakturen.pptx' },
+  { key: 'plateau', title: 'Tibial plateau fractures',           region: 'Knee',     src: 'Tibia-Fractures.pptx + Knienahe-Frakturen.pptx' },
+  { key: 'patfx',   title: 'Patella fracture & extensor mechanism', region: 'Knee',  src: 'Knienahe-Frakturen.pptx' },
+  { key: 'tibia',   title: 'Tibia: proximal & shaft, open fractures', region: 'Leg', src: 'Tibia-Fractures.pptx' },
+  { key: 'legcs',   title: 'Compartment syndrome (leg & forearm)', region: 'Leg',    src: 'Kompartment-Unterschenkel.pptx + Radiusschaft.pptx' },
+  { key: 'pji',     title: 'Implant-associated infection',       region: 'General',  src: 'Implantassoziierte-Infektionen-FMH.pptx' },
+];
