@@ -100,7 +100,13 @@
   }
   const newLeft = () => Math.max(0, (Number(db.settings.newPerDay) || 0) - introducedToday());
   const isSeen = (id) => !!db.mem[id];
-  const isDue = (id, t) => isSeen(id) && db.mem[id].due <= t;
+  const LEARN_AHEAD = 20 * MIN; // learning-step cards this close to due count as ready (as in Anki)
+  const isDue = (id, t) => {
+    const m = db.mem[id];
+    if (!m) return false;
+    const learning = m.st === STATE.Learning || m.st === STATE.Relearning;
+    return m.due <= (learning ? t + LEARN_AHEAD : t);
+  };
   function cardRecall(id, t) { return isSeen(id) ? recall(db.mem[id], t) : 0; }
   function reviewsOnDay(idx) {
     const a = startOfDay(idx), b = startOfDay(idx + 1);
@@ -137,7 +143,7 @@
       const m = db.mem[c.id];
       if (!m) continue;
       seen++;
-      if (m.due <= t) due++;
+      if (isDue(c.id, t)) due++;
       if (m.st === STATE.Review && m.s >= MATURE_DAYS) mature++;
       lapses += m.lapses || 0;
       rsum += recall(m, t);
