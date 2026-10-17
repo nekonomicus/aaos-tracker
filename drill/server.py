@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""FMH DRILL · local server.
+
+Serves the app and stores every bit of progress as plain JSON files in ./userdata
+next to this script. Standard library only — no installs.
+
+    python3 server.py            # starts on http://127.0.0.1:8765 and opens the browser
+    python3 server.py --port 9000 --no-open
+
+Layout of userdata/
+    state.json            settings, drill progress, case grades, daily log
+    backups/              one copy of state.json per day (last 30 kept)
+    bank.json             drill items generated from your materials
+    materials/<id>.json   text extracted from dumped PDFs / PPTX / DOCX
+    files/                the original uploaded files
+    sessions/<id>.json    full exam transcripts with feedback
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+import threading
+import time
+import webbrowser
+from datetime import date
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, unquote, urlsplit
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(ROOT, 'userdata')
+LOCK = threading.Lock()
+SAFE_ID = re.compile(r'^[A-Za-z0-9_-]{1,80}$')
+MAX_JSON = 64 * 1024 * 1024
+MAX_FILE = 2 * 1024 * 1024 * 1024
+
+
+def ensure_dirs():
+    for sub in ('', 'backups', 'materials', 'files', 'sessions'):
+        os.makedirs(os.path.join(DATA, sub), exist_ok=True)
+
+
+def atomic_write(path, data: bytes):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f'{path}.tmp-{os.getpid()}-{threading.get_ident()}'
+    with open(tmp, 'wb') as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def daily_backup(path):
+    """Keep one copy of state.json per calendar day, at most 30."""
+    if not os.path.exists(path):
+        return
+    os.makedirs(os.path.join(DATA, 'backups'), exist_ok=True)
+    stamp = date.today().isoformat()
+    target = os.path.join(DATA, 'backups', f'state-{stamp}.json')
+    if os.path.exists(target):
+        return
+    shutil.copyfile(path, target)
+    backups = sorted(name for name in os.listdir(os.path.join(DATA, 'backups')) if name.startswith('state-'))
+    for old in backups[:-30]:
+        os.remove(os.path.join(DATA, 'backups', old))
+
+
+def read_json(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, 'rb') as handle:
+        return json.loads(handle.read().decode('utf-8'))
+
+
+def list_dir_json(folder):
+    items = []
+    if not os.path.isdir(folder):
+        return items
+    for name in sorted(os.listdir(folder)):
+        if not name.endswith('.json'):
+            continue
+        try:
+            items.append(read_json(os.path.join(folder, name)))
+        except (OSError, ValueError):
+            continue
+    return items
+
+
+class Handler(SimpleHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=ROOT, **kwargs)
+
+    def log_message(self, fmt, *args):  # quieter log: only API writes and errors
+        if self.command in ('PUT', 'POST', 'DELETE') or (args and str(args[-1]).startswith(('4', '5'))):
+            sys.stderr.write('%s  %s\n' % (time.strftime('%H:%M:%S'), fmt % args))
+
+    # ---- helpers -------------------------------------------------------
+    def send_json(self, payload, status=200):
+        body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        if status >= 400:
+            self.close_connection = True  # an unread request body must not be parsed as the next request
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_body(self, limit):
+        length = int(self.headers.get('Content-Length') or 0)
+        if length > limit:
+            raise ValueError('too large')
+        return self.rfile.read(length) if length else b''
+
+    def route(self):
+        parts = urlsplit(self.path)
+        return parts.path, parse_qs(parts.query)
+
+    def end_headers(self):
+        if self.path.startswith('/api/') or self.path.endswith(('.js', '.css', '.html')):
+            self.send_header('Cache-Control', 'no-store')
+        super().end_headers()
+
+    # ---- GET -------------------------------------------------------------
+    def do_GET(self):
+        path, query = self.route()
+        if not path.startswith('/api/'):
+            if path == '/':
+                self.path = '/index.html'
+            return super().do_GET()
+        try:
+            with LOCK:
+                if path == '/api/ping':
+                    return self.send_json({'ok': True, 'dataDir': DATA})
+                if path == '/api/state':
+                    return self.send_json(read_json(os.path.join(DATA, 'state.json')) or {})
+                if path == '/api/bank':
+                    return self.send_json(read_json(os.path.join(DATA, 'bank.json')) or [])
+                if path == '/api/materials':
+                    items = list_dir_json(os.path.join(DATA, 'materials'))
+                    summary = [{key: value for key, value in item.items() if key != 'text'} for item in items if item]
+                    return self.send_json(summary)
+                match = re.match(r'^/api/materials/([A-Za-z0-9_-]+)$', path)
+                if match:
+                    item = read_json(os.path.join(DATA, 'materials', match.group(1) + '.json'))
+                    return self.send_json(item or {}, 200 if item else 404)
+                if path == '/api/sessions':
+                    items = list_dir_json(os.path.join(DATA, 'sessions'))
+                    summary = [{key: value for key, value in item.items() if key not in ('messages', 'dossier')} for item in items if item]
+                    return self.send_json(summary)
+                match = re.match(r'^/api/sessions/([A-Za-z0-9_-]+)$', path)
+                if match:
+                    item = read_json(os.path.join(DATA, 'sessions', match.group(1) + '.json'))
+                    return self.send_json(item or {}, 200 if item else 404)
+                if path == '/api/files':
+                    folder = os.path.join(DATA, 'files')
+                    return self.send_json(sorted(os.listdir(folder)) if os.path.isdir(folder) else [])
+            self.send_json({'error': 'not found'}, 404)
+        except Exception as error:  # noqa: BLE001 - report anything to the UI
+            self.send_json({'error': str(error)}, 500)
+
+    # ---- PUT / POST ------------------------------------------------------
+    def do_PUT(self):
+        path, query = self.route()
+        try:
+            if path == '/api/state':
+                body = self.read_body(MAX_JSON)
+                json.loads(body)  # validate before touching the disk
+                with LOCK:
+                    target = os.path.join(DATA, 'state.json')
+                    daily_backup(target)
+                    atomic_write(target, body)
+                return self.send_json({'ok': True})
+            if path == '/api/bank':
+                body = self.read_body(MAX_JSON)
+                json.loads(body)
+                with LOCK:
+                    atomic_write(os.path.join(DATA, 'bank.json'), body)
+                return self.send_json({'ok': True})
+            for kind in ('materials', 'sessions'):
+                match = re.match(r'^/api/%s/([A-Za-z0-9_-]+)$' % kind, path)
+                if match:
+                    body = self.read_body(MAX_JSON)
+                    json.loads(body)
+                    with LOCK:
+                        atomic_write(os.path.join(DATA, kind, match.group(1) + '.json'), body)
+                    return self.send_json({'ok': True})
+            self.send_json({'error': 'not found'}, 404)
+        except ValueError as error:
+            self.send_json({'error': str(error)}, 400)
+        except Exception as error:  # noqa: BLE001
+            self.send_json({'error': str(error)}, 500)
+
+    def do_POST(self):
+        path, query = self.route()
+        try:
+            if path == '/api/files':
+                name = unquote((query.get('name') or ['file'])[0])
+                name = re.sub(r'[^A-Za-z0-9._ -]+', '-', name).strip(' .-') or 'file'
+                length = int(self.headers.get('Content-Length') or 0)
+                if length > MAX_FILE:
+                    raise ValueError('file too large')
+                os.makedirs(os.path.join(DATA, 'files'), exist_ok=True)
+                target = os.path.join(DATA, 'files', f'{int(time.time())}-{name}'[:150])
+                remaining = length
+                with open(target, 'wb') as handle:
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(1 << 20, remaining))
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+                        remaining -= len(chunk)
+                return self.send_json({'ok': True, 'stored': os.path.basename(target)})
+            self.send_json({'error': 'not found'}, 404)
+        except ValueError as error:
+            self.send_json({'error': str(error)}, 400)
+        except Exception as error:  # noqa: BLE001
+            self.send_json({'error': str(error)}, 500)
+
+    def do_DELETE(self):
+        path, query = self.route()
+        try:
+            for kind in ('materials', 'sessions'):
+                match = re.match(r'^/api/%s/([A-Za-z0-9_-]+)$' % kind, path)
+                if match:
+                    target = os.path.join(DATA, kind, match.group(1) + '.json')
+                    with LOCK:
+                        if os.path.exists(target):
+                            os.remove(target)
+                    return self.send_json({'ok': True})
+            self.send_json({'error': 'not found'}, 404)
+        except Exception as error:  # noqa: BLE001
+            self.send_json({'error': str(error)}, 500)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='FMH DRILL local server')
+    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--no-open', action='store_true', help='do not open the browser')
+    args = parser.parse_args()
+    ensure_dirs()
+    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
+    url = f'http://127.0.0.1:{args.port}/'
+    print(f'FMH DRILL  ·  {url}\nprogress is saved in {DATA}\npress Ctrl+C to stop')
+    if not args.no_open:
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print('\nstopped')
+
+
+if __name__ == '__main__':
+    main()

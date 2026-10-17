@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>FMH DRILL</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="wordmark">FMH DRILL</span><span class="brand-sub" id="countdown"></span></div>
+  <nav class="nav" id="nav">
+    <button data-view="exam">PRÜFUNG</button>
+    <button data-view="quiz">ABFRAGE</button>
+    <button data-view="lazy">LAZY</button>
+    <button data-view="free">FREI</button>
+    <button data-view="material">MATERIAL</button>
+    <button data-view="status">STATUS</button>
+    <button data-view="settings" class="gear" title="Einstellungen">⚙</button>
+  </nav>
+</header>
+<main id="view" class="shell"></main>
+<div id="toast" class="toast" hidden></div>
+<footer class="foot"><span id="storage-note"></span><span id="model-note"></span></footer>
+
+<script src="data/cases.js"></script>
+<script src="data/corpus.js"></script>
+<script src="data/bank/index.js"></script>
+<script src="data/bank/ao-trauma.js"></script>
+<script src="data/bank/schulter-ellbogen.js"></script>
+<script src="data/bank/unterarm-hand.js"></script>
+<script src="data/bank/wirbelsaeule.js"></script>
+<script src="data/bank/becken-acetabulum.js"></script>
+<script src="data/bank/huefte-femur.js"></script>
+<script src="data/bank/knie-unterschenkel.js"></script>
+<script src="data/bank/fuss-osg.js"></script>
+<script src="data/bank/kinderorthopaedie.js"></script>
+<script src="data/bank/infekt-tumor-allgemein.js"></script>
+<script src="prompts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
