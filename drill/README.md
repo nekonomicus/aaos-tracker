@@ -73,10 +73,14 @@ browser's own voice), Space reveals, 1/2/3 rates. After the reveal a NACHFRAGEN 
 the rating buttons: ask the examiner why, how to say it, or to quiz you on it, by text or ● LIVE;
 the card and its conversation survive a reload until you rate it.
 
-**FREI** — free prompt with the same examiner persona, grounded on a region or a case. Pick
-the case or region and press START: the examiner is briefed on exactly that focus (a running
-live call is re-briefed, otherwise the call is started) and asks what you want: Abfrage, Fall or
-Erklärung. ● LIVE turns it into a spoken conversation: the examiner answers by voice, and
+**FREI** — free prompt with the same examiner persona. Pick a case, a region, SCHWÄCHEN
+DRILLEN, or nothing, and press START (its label says what it will do; with nothing picked the
+examiner chooses a topic himself): a new thread begins, the examiner is briefed on exactly that
+focus (a running live call is re-briefed, otherwise the call is started) and opens with the first
+question. SCHWÄCHEN DRILLEN hands him your weaknesses profile and he works through it, weakest
+first. Every thread (FREI and every NACHFRAGEN box) is saved in `userdata/sessions/` and listed
+under GESPRÄCHE, where one click continues it. When a thread with substance ends, one small
+model call distils it into the profile: what you did not know, what you had down cold, by region. ● LIVE turns it into a spoken conversation: the examiner answers by voice, and
 whenever he is not sure of a number he looks it up in your sources through the `nachschlagen`
 tool before answering. Typed and spoken turns share one thread. The same ● LIVE button sits in every NACHFRAGEN box
 (after each quiz verdict and after each feedback sheet), so you can always talk to the examiner
@@ -91,8 +95,9 @@ items. Everything here is also indexed as a source, see **Sources** below.
 at most every 6 hours. New PPTX/PDF/DOCX attachments become sources mapped to their case,
 new image attachments become case images.
 
-**STATUS** — per-region accuracy, items due, case grades, weakest items and cases, daily
-activity, export/import.
+**STATUS** — per-region accuracy, items due, case grades, daily activity, export/import, and
+the profile: SCHWÄCHEN and STÄRKEN from quiz topics (accuracy), case grades, what was missing in
+feedback sheets, and what the conversations revealed, with a SCHWÄCHEN DRILLEN button into FREI.
 
 ## Exam format
 

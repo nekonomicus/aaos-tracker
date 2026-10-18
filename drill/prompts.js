@@ -404,10 +404,10 @@ ${cases.map((c) => `${c.id} · ${c.title}`).join('\n')}`;
   const COMMONS_SCHEMA = { type: 'object', additionalProperties: false, required: ['queries'], properties: { queries: { type: 'array', items: { type: 'string' } } } };
 
   // ------------------------------------------------------------------ FREE
-  function freeSystem(settings, grounding, memory, focus) {
+  function freeSystem(settings, grounding, memory, focus, plan) {
     return `Du bist Prüfungsexperte und Tutor für die Facharztprüfung Orthopädische Chirurgie und Traumatologie des Bewegungsapparates (swiss orthopaedics, mündliche klinische Fallbesprechungen, bewertet werden Anamnese / Untersuchung, Bildinterpretation / Zusatzuntersuchungen, DD / Diagnose / Prognose, Therapieoptionen / Indikation / Risiken / Aufklärung, Nachsorge; Noten 1–6).
 ${focus ? `FOKUS: Der Kandidat hat ${focus} gewählt. Bleib dabei, solange er nichts anderes verlangt.` : 'Kein Fokus gewählt: wähle selbst ein prüfungsrelevantes Thema.'}
-Du entscheidest, was dran ist: Sagt der Kandidat nichts Näheres, "egal", "du entscheidest" oder "mach einen Fall", dann wähle sofort selbst (typischer Fall, typische Prüferfrage) und beginne. Keine Fragen nach Präferenzen, nie zweimal nachfragen; der Kandidat kann jederzeit umlenken.
+Du entscheidest, was dran ist: Sagt der Kandidat nichts Näheres, "egal", "du entscheidest" oder "mach einen Fall", dann wähle sofort selbst (typischer Fall, typische Prüferfrage) und beginne. Keine Fragen nach Präferenzen, nie zweimal nachfragen; der Kandidat kann jederzeit umlenken.${plan ? `\n${plan}` : ''}
 Der Kandidat bestimmt, was passiert: Abfragen, Fallsimulation, Erklärung, Korrektur einer Antwort, Zusammenfassung.
 Grundregeln:
 - Beim Abfragen: genau eine Frage pro Zug, dann warten. Nach der Antwort: Urteil in einem Satz ohne Lob, Musterantwort in Telegrammstil, dann die nächste Frage.
@@ -417,6 +417,22 @@ ${STRICTNESS[settings.strictness] || STRICTNESS.hart}
 ${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}` : ''}
 ${langLine(settings)}${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
+
+  // strengths / weaknesses distilled from a finished conversation
+  function profilePrompt(title, msgs) {
+    const text = msgs.map((m) => `${m.role === 'assistant' ? 'PRÜFER' : 'KANDIDAT'}: ${m.content}`).join('\n').slice(-12000);
+    return `Fasse dieses Übungsgespräch (${title}) für das Stärken-Schwächen-Profil des Kandidaten zusammen. "schwaechen": 0–4 Punkte, die der Kandidat nicht wusste, falsch sagte oder nur unsicher beantwortete ("thema": 1–4 Wörter, z. B. "Garden-Klassifikation"; "befund": ein Satz, was genau fehlte oder falsch war; "region": die passende aus ${JSON.stringify(REGIONS)}). "staerken": 0–3 Punkte, die er sicher und korrekt beherrschte (gleiche Felder). Nur belegte Punkte aus dem Gespräch, keine Vermutungen; leer, wenn nichts belegt ist. Deutsch.
+<<<
+${text}
+>>>`;
+  }
+  const PROFILE_SCHEMA = {
+    type: 'object', additionalProperties: false, required: ['schwaechen', 'staerken'],
+    properties: {
+      schwaechen: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['thema', 'befund', 'region'], properties: { thema: { type: 'string' }, befund: { type: 'string' }, region: { type: 'string' } } } },
+      staerken: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['thema', 'befund', 'region'], properties: { thema: { type: 'string' }, befund: { type: 'string' }, region: { type: 'string' } } } },
+    },
+  };
 
   function researchPrompt(caseItem) {
     return `Suche im Web 3–5 frei zugängliche Seiten, auf denen ein typisches, echtes Röntgen-, CT- oder MRI-Bild zu diesem Prüfungsthema zu sehen ist: ${caseItem.title} (${caseItem.region}). Bevorzuge konkrete Fallseiten (Radiopaedia-Fälle mit passender Diagnose, AO Surgery Reference, Orthobullets, Wikimedia Commons, Fachartikel mit offenen Abbildungen). Keine Lehrbuch-Schemata, keine Shops. Für jede Seite: Titel, URL, und in max. 12 Wörtern, was dort zu sehen ist (Modalität, Ebene, Befund). Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
@@ -489,6 +505,6 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,
     extractSystem, extractPrompt, generateSystem, generatePrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
-    commonsQueryPrompt, COMMONS_SCHEMA, researchPrompt, freeSystem, discussSystem, caseTermsPrompt, TERMS_SCHEMA, factCheckPrompt,
+    commonsQueryPrompt, COMMONS_SCHEMA, researchPrompt, freeSystem, discussSystem, caseTermsPrompt, TERMS_SCHEMA, factCheckPrompt, profilePrompt, PROFILE_SCHEMA,
   };
 })();

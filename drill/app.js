@@ -95,6 +95,12 @@
       if (serverOk) return fetch(`/api/sessions/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       return JSON.parse(localStorage.getItem(`fmhdrill.session.${id}`) || 'null');
     },
+    async listSessions() {
+      if (serverOk) return fetch('/api/sessions').then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const out = [];
+      for (let i = 0; i < localStorage.length; i += 1) { const k = localStorage.key(i); if (k && k.startsWith('fmhdrill.session.')) { try { const x = JSON.parse(localStorage.getItem(k)); if (x) { const { messages, dossier, discussion, ...rest } = x; out.push(rest); } } catch { /* skip */ } } }
+      return out;
+    },
     async putSession(session) {
       if (serverOk) await fetch(`/api/sessions/${session.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
       else { try { localStorage.setItem(`fmhdrill.session.${session.id}`, JSON.stringify(session)); } catch { /* grade is kept in state */ } }
@@ -548,6 +554,51 @@
     return { caseGaps, weakTopics };
   }
 
+  // ------------------------------------------------------------- profile
+  // Strengths and weaknesses from everything the app has seen: quiz / lazy results per topic, case grades
+  // and what was missing in the feedback, and what the conversations themselves revealed (distillThread).
+  function profileSummary() {
+    const byTopic = {};
+    for (const it of allItems()) {
+      const st = stats(it.id); if (!st.seen) continue;
+      const key = it.topic || it.region; const h = st.hist || [];
+      const t = byTopic[key] || (byTopic[key] = { n: 0, pts: 0, region: it.region });
+      t.n += h.length; t.pts += h.reduce((a, b) => a + b, 0);
+    }
+    const topics = Object.entries(byTopic).map(([t, v]) => ({ t, acc: v.n ? v.pts / (2 * v.n) : 0, n: v.n, region: v.region }));
+    const weakTopics = topics.filter((x) => x.n >= 2 && x.acc < 0.6).sort((a, b) => a.acc - b.acc).slice(0, 12);
+    const strongTopics = topics.filter((x) => x.n >= 3 && x.acc >= 0.9).sort((a, b) => b.n - a.n).slice(0, 12);
+    const cases = CASES.map((c) => ({ c, s: caseSummary(c.id) })).filter((x) => x.s.mean != null);
+    const weakCases = cases.filter((x) => x.s.mean < 4.5).sort((a, b) => a.s.mean - b.s.mean).slice(0, 8);
+    const strongCases = cases.filter((x) => x.s.mean >= 5).sort((a, b) => b.s.mean - a.s.mean).slice(0, 8);
+    const fehlend = Object.values(state.caseLog).flat().flatMap((l) => l.fehlend || []).slice(-30);
+    const log = (state.profile?.log || []).slice(-25);
+    return { weakTopics, strongTopics, weakCases, strongCases, fehlend, threadWeak: log.flatMap((e) => e.schwaechen || []), threadStrong: log.flatMap((e) => e.staerken || []) };
+  }
+  // the weaknesses as a compact German list for the examiner (SCHWÄCHEN DRILLEN), optionally one region only
+  function weaknessText(region) {
+    const pf = profileSummary(); const lines = [];
+    for (const x of pf.weakTopics.filter((x) => !region || x.region === region)) lines.push(`- ${x.t} (${x.region}): ${Math.round(x.acc * 100)} % richtig in ${x.n} Abfragen`);
+    for (const x of pf.weakCases.filter((x) => !region || regionOfCase(x.c) === region)) { const last = (state.caseLog[x.c.id] || []).slice(-1)[0]; lines.push(`- Fall ${x.c.title}: Note ${fmtGrade(x.s.mean)}${last?.fehlend?.length ? `, gefehlt: ${last.fehlend.slice(0, 3).join('; ')}` : ''}`); }
+    for (const x of pf.threadWeak.filter((x) => !region || x.region === region).slice(-10)) lines.push(`- ${x.thema}${x.region ? ` (${x.region})` : ''}: ${x.befund}`);
+    return lines.slice(0, 25).join('\n');
+  }
+  // one small model call per finished conversation with substance (FREI thread or NACHFRAGEN), once per thread
+  function distillThread(holder) {
+    if (!holder || holder.profiled || !state.settings.apiKey) return;
+    const msgs = (holder.discussion || holder.messages || []).filter((m) => m && m.content);
+    if (msgs.length < 4) return;
+    holder.profiled = true;
+    const title = holder.title || holder.threadTitle || 'Gespräch';
+    chatJSON({ system: 'Du bist Prüfungsexperte und fasst ein Übungsgespräch für ein Stärken-Schwächen-Profil zusammen. Antworte nur mit JSON.', messages: [{ role: 'user', content: P.profilePrompt(title, msgs) }], schema: P.PROFILE_SCHEMA, name: 'profil' })
+      .then((out) => {
+        const entry = { t: Date.now(), title, schwaechen: (out.schwaechen || []).slice(0, 4), staerken: (out.staerken || []).slice(0, 3) };
+        if (!entry.schwaechen.length && !entry.staerken.length) return;
+        (state.profile = state.profile || {}).log = (state.profile.log || []).concat(entry).slice(-150); Store.saveState();
+      })
+      .catch(() => { holder.profiled = false; });
+  }
+
   // images for a case: own slides first, Wikimedia Commons as fallback
   async function imageCandidates(caseItem) {
     const out = []; out.note = '';
@@ -684,6 +735,9 @@
   // chat about a verdict or a feedback sheet; messages are kept in `holder.discussion`
   function discussion(container, contextText, holder, onChange, sourceQuery = '', opts = {}) {
     holder.discussion = holder.discussion || [];
+    holder.threadId = holder.threadId || `n${uid()}`;
+    holder.threadTitle = holder.threadTitle || (contextText.split('\n').find((l) => /^(FRAGE|FALL): /.test(l)) || 'Nachfrage').replace(/^(FRAGE|FALL): /, '').slice(0, 80);
+    const persist = () => { const n = holder.discussion.filter((m) => m.content).length; if (!n) return; if (!holder.threadStart) holder.threadStart = Date.now(); Store.putSession({ id: holder.threadId, kind: 'nachfrage', title: holder.threadTitle, startedAt: holder.threadStart, updatedAt: Date.now(), n, messages: holder.discussion, context: contextText.slice(0, 3000) }); };
     container.innerHTML = `<details class="plain discuss" ${holder.discussion.length || opts.open ? 'open' : ''}><summary>NACHFRAGEN</summary>
       <div class="chat small" id="d-chat"></div>
       <textarea class="answer" id="d-input" style="min-height:70px" placeholder="Warum? Wie formuliere ich das besser? … ⌘/Ctrl+Enter sendet"></textarea>
@@ -696,10 +750,11 @@
     const liveChat = attachLive(container.querySelector('.answer-tools'), {
       add,
       system: async () => { const passages = await lookup(sourceQuery, 4000, { k: 5 }).catch(() => ''); return P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab):\n<<<\n${passages}\n>>>` : ''); },
-      onTurn: (entry, fresh) => { if (fresh) holder.discussion.push(entry); if (onChange) onChange(); },
+      onTurn: (entry, fresh) => { if (fresh) holder.discussion.push(entry); persist(); if (onChange) onChange(); },
       history: () => holder.discussion,
       greeting: opts.greeting || 'Sage in einem Satz, dass der Kandidat jetzt zur Bewertung nachfragen kann.',
     });
+    { const prevC = currentCleanup; currentCleanup = () => { distillThread(holder); if (prevC) prevC(); }; }
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); container.querySelector('#d-send').click(); } });
     container.querySelector('#d-send').onclick = async () => {
       const text = ta.value.trim(); if (!text || busy || !requireKey()) return;
@@ -708,7 +763,7 @@
       try {
         const passages = await lookup(`${sourceQuery} ${text}`, 4000, { k: 5 }).catch(() => '');
         const full = await chatStream({ system: P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab; mit [Quelle: …] zitieren):\n<<<\n${passages}\n>>>` : ''), messages: holder.discussion.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
-        body.textContent = full; holder.discussion.push({ role: 'assistant', content: full });
+        body.textContent = full; holder.discussion.push({ role: 'assistant', content: full }); persist();
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
         if (onChange) onChange();
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; holder.discussion.pop(); }
@@ -1400,7 +1455,7 @@
     function onKey(e) { if (sess.verdict && e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') { e.preventDefault(); next(); } }
     document.addEventListener('keydown', onKey);
     currentCleanup = () => document.removeEventListener('keydown', onKey);
-    function next() { sess.i += 1; sess.verdict = null; save(); show(); }
+    function next() { distillThread(sess.verdict); sess.i += 1; sess.verdict = null; save(); show(); }
     function summary() {
       document.removeEventListener('keydown', onKey);
       const n = sess.results.length; const pts = sess.results.reduce((a, b) => a + b, 0);
@@ -1459,7 +1514,7 @@
       save();
       if (state.settings.readAloud) readAloud(item.a);
     }
-    function rate(score) { const item = current(); sess.results.push(score); schedule(item.id, score); bump('lazy'); sess.i += 1; sess.talk = null; save(); show(); }
+    function rate(score) { const item = current(); sess.results.push(score); schedule(item.id, score); bump('lazy'); sess.i += 1; distillThread(sess.talk); sess.talk = null; save(); show(); }
     function onKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || !lightbox.hidden) return;
       if (e.key === ' ') { e.preventDefault(); reveal(); }
@@ -1478,12 +1533,16 @@
   }
 
   // ------------------------------------------------------------------ FREE
-  function renderFree() {
+  // Every conversation is a thread, saved in userdata/sessions (kind "frei") and reopenable under GESPRÄCHE;
+  // a thread with substance is distilled into the strengths / weaknesses profile when it ends. Focus: a case,
+  // a region, the candidate's weaknesses (SCHWÄCHEN DRILLEN), or nothing at all: then the examiner picks.
+  function renderFree(arg) {
     const regionOptions = ['', ...P.REGIONS].map((r) => `<option value="${esc(r)}">${r ? esc(r) : 'Region'}</option>`).join('');
     const caseOptions = ['', ...CASES.map((c) => c.id)].map((id) => `<option value="${id}">${id ? esc(`${id.toUpperCase()} · ${caseById(id).title}`) : 'Fall'}</option>`).join('');
     view.innerHTML = `
       ${hero('FREI', 'Frei')}
-      <div class="row" style="margin-bottom:12px"><select id="free-region" style="max-width:240px">${regionOptions}</select><select id="free-case" style="max-width:400px">${caseOptions}</select><button class="btn primary" id="free-start" title="Prüfer auf das gewählte Thema einstellen und loslegen">START</button><button class="btn ghost small" id="free-reset">NEU</button></div>
+      <div class="row" style="margin-bottom:10px"><select id="free-region" style="max-width:240px">${regionOptions}</select><select id="free-case" style="max-width:400px">${caseOptions}</select><span class="pill clickable" id="free-weak" title="Der Prüfer fragt deine schwächsten Themen ab, der Reihe nach">SCHWÄCHEN DRILLEN</span></div>
+      <div class="row" style="margin-bottom:14px"><button class="btn primary big" id="free-start">START</button><button class="btn ghost small" id="free-reset" title="Neues Gespräch, gleicher Fokus">NEU</button><span class="meta" id="free-hint"></span></div>
       <div class="quick" id="quick">
         <span class="pill clickable" data-q="Frag mich 10 Klassifikationen aus dieser Region ab, eine nach der anderen.">10 KLASSIFIKATIONEN</span>
         <span class="pill clickable" data-q="Frag mich 10 Begriffe ab: 'Was ist ein/eine ...?' – eine Frage pro Zug.">10 BEGRIFFE</span>
@@ -1491,29 +1550,58 @@
         <span class="pill clickable" data-q="Erkläre mir die wichtigsten AO-Grundprinzipien zu diesem Thema (absolute vs. relative Stabilität, Implantatwahl), dann prüfe mich.">AO-PRINZIPIEN</span>
         <span class="pill clickable" data-q="Gib mir die Zahlen und Grenzwerte dieser Region als Liste, dann frag mich 5 davon ab.">ZAHLEN</span>
       </div>
+      <details class="plain" id="free-threads" style="margin:0 0 14px"><summary>GESPRÄCHE</summary><ul class="clean" id="free-thread-list" style="margin-top:8px"></ul></details>
       <div class="chat" id="chat"></div>
       <div class="answer-box">
         <textarea class="answer" id="answer" placeholder="Nachricht · ⌘/Ctrl+Enter sendet"></textarea>
         <div class="answer-tools"><button class="btn rec" id="mic">● SPRECHEN</button><span class="spacer"></span><button class="btn primary" id="btn-send">SENDEN</button></div>
       </div>`;
-    const chat = $('#chat'); const ta = $('#answer'); let messages = []; let busy = false;
+    const chat = $('#chat'); const ta = $('#answer'); let busy = false; let weak = arg === 'weak';
+    const weakPill = $('#free-weak');
+    const newThread = () => ({ id: `f${uid()}`, kind: 'frei', title: '', focus: null, context: '', startedAt: Date.now(), updatedAt: Date.now(), n: 0, messages: [], profiled: false });
+    let thread = newThread(); let saveTimer = null;
+    const selection = () => { const region = $('#free-region').value; const cid = $('#free-case').value; return { region, cid, c: cid ? caseById(cid) : null, weak }; };
+    const focusLabel = (sel) => (sel.weak ? `Schwächen${sel.region ? ` · ${sel.region}` : ''}` : sel.c ? `Fall ${sel.c.id.toUpperCase()} · ${sel.c.title} (${sel.c.region})` : sel.region ? `Region ${sel.region}` : '');
+    function paintStart() {
+      const label = focusLabel(selection());
+      $('#free-start').textContent = label ? `START · ${label.toUpperCase().slice(0, 44)}` : 'START · FREI';
+      $('#free-hint').textContent = label ? '' : 'Kein Thema gewählt: der Prüfer sucht selbst eines aus.';
+      weakPill.classList.toggle('on', weak);
+    }
+    $('#free-region').onchange = paintStart;
+    $('#free-case').onchange = () => { if ($('#free-case').value) weak = false; paintStart(); };
+    weakPill.onclick = () => { weak = !weak; if (weak) $('#free-case').value = ''; paintStart(); };
+    paintStart();
     wireMic($('#mic'), ta);
     $('#mic').after(readToggle());
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); $('#btn-send').click(); } });
-    $('#quick').onclick = (e) => { const p = e.target.closest('.pill'); if (p) { ta.value = p.dataset.q; ta.focus(); } };
-    $('#free-reset').onclick = () => { messages = []; chat.innerHTML = ''; };
+    $('#quick').onclick = (e) => { const pl = e.target.closest('.pill'); if (pl) { ta.value = pl.dataset.q; ta.focus(); } };
+    function saveThread() {
+      thread.n = thread.messages.filter((m) => m.content).length; if (!thread.n) return;
+      const sel = selection(); thread.focus = { region: sel.region, cid: sel.cid, weak: sel.weak }; thread.title = thread.title || focusLabel(sel) || 'Frei'; thread.updatedAt = Date.now();
+      clearTimeout(saveTimer); saveTimer = setTimeout(() => { Store.putSession(thread); listThreads(); }, 600);
+    }
+    function startThread() { const old = thread; thread = newThread(); chat.innerHTML = ''; distillThread(old); }
     // what the candidate picked: told to the examiner explicitly and used to anchor the retrieval
     async function freeContext(text) {
-      const region = $('#free-region').value; const cid = $('#free-case').value; const c = cid ? caseById(cid) : null;
-      const label = c ? `Fall ${c.id.toUpperCase()} · ${c.title} (${c.region})` : region ? `Region ${region}` : '';
-      const focus = c ? `den ${label}` : region ? `die ${label}` : '';
-      let grounding = '';
-      if (c) grounding = await groundingForCase(c, 12000, text);
-      else if (region) grounding = await groundingForRegion(region, 9000, text);
-      const anchor = c ? c.title : region;
-      const passages = await lookup(`${anchor || ''} ${text}`, anchor ? 4000 : 9000, { k: 8, boost: c ? (x) => (x.caseId === c.id ? 1.6 : 1) : null }).catch(() => '');
-      if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
-      return { system: P.freeSystem(state.settings, grounding, memoryFor(c, region || null), focus), focus, label };
+      const sel = selection(); const label = focusLabel(sel);
+      let focus = ''; let plan = ''; let grounding = '';
+      if (sel.weak) {
+        const w = weaknessText(sel.region || null);
+        focus = `das gezielte Abfragen seiner Schwächen${sel.region ? ` in der Region ${sel.region}` : ''}`;
+        plan = w
+          ? `SCHWÄCHENPROFIL des Kandidaten (aus Abfragen, Fallprüfungen und früheren Gesprächen):\n${w}\nAUFTRAG: diese Punkte der Reihe nach abfragen, mit dem schwächsten beginnen, genau eine Frage pro Zug; nach jeder Antwort Urteil in einem Satz und Musterantwort in Telegrammstil, dann der nächste Punkt. Keine Fragen nach Präferenzen.`
+          : 'Noch kein Schwächenprofil vorhanden: frag quer durch die Regionen typische Prüfungsthemen ab, eine Frage pro Zug, um Schwächen zu finden.';
+        grounding = sel.region ? await groundingForRegion(sel.region, 9000, w.slice(0, 300)) : await lookup(`${w.slice(0, 800)} ${text}`, 9000, { k: 10 }).catch(() => '');
+      } else {
+        if (sel.c) { focus = `den ${label}`; grounding = await groundingForCase(sel.c, 12000, text); }
+        else if (sel.region) { focus = `die ${label}`; grounding = await groundingForRegion(sel.region, 9000, text); }
+        const anchor = sel.c ? sel.c.title : sel.region;
+        const passages = await lookup(`${anchor || ''} ${text}`, anchor ? 4000 : 9000, { k: 8, boost: sel.c ? (x) => (x.caseId === sel.c.id ? 1.6 : 1) : null }).catch(() => '');
+        if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
+      }
+      if (thread.context) plan = `${plan ? `${plan}\n` : ''}KONTEXT DIESES GESPRÄCHS (woraus es entstand):\n${thread.context}`;
+      return { system: P.freeSystem(state.settings, grounding, memoryFor(sel.c, sel.region || null), focus, plan), label, sel };
     }
     function add(role, text) {
       const div = document.createElement('div'); div.className = `msg ${role}`;
@@ -1525,36 +1613,63 @@
     const liveFree = attachLive($('.answer-tools'), {
       add,
       system: async () => (await freeContext('')).system,
-      onTurn: (entry, fresh) => { if (fresh) messages.push(entry); },
-      history: () => messages,
+      onTurn: (entry, fresh) => { if (fresh) thread.messages.push(entry); saveThread(); },
+      history: () => thread.messages,
       greeting: 'Begrüsse den Kandidaten in einem kurzen Satz, nenne den Fokus und stelle sofort die erste Prüferfrage dazu.',
     });
-    // START: brief the examiner on the chosen case or region and begin (re-briefs a running call, connects otherwise)
+    // START: new thread, examiner briefed on the chosen focus and begins (re-briefs a running call, connects otherwise)
     $('#free-start').onclick = async () => {
       if (!requireKey()) return;
       const b = $('#free-start'); b.disabled = true;
       try {
-        const { label } = await freeContext('');
-        messages = []; chat.innerHTML = '';
-        const note = label ? `Neuer Fokus: ${label}. Sage das in einem Satz und stelle sofort die erste Prüferfrage dazu.` : 'Kein Fokus gewählt: wähle selbst ein prüfungsrelevantes Thema, nenne es in einem Satz und stelle sofort die erste Prüferfrage.';
+        startThread();
+        const { label, sel } = await freeContext('');
+        const note = sel.weak
+          ? `Neuer Fokus: ${label}. Sage in einem Satz, dass du jetzt die Schwächen abfragst, und stelle sofort die erste Frage zum schwächsten Punkt.`
+          : label ? `Neuer Fokus: ${label}. Sage das in einem Satz und stelle sofort die erste Prüferfrage dazu.`
+            : 'Kein Fokus gewählt: wähle selbst ein prüfungsrelevantes Thema, nenne es in einem Satz und stelle sofort die erste Prüferfrage.';
         if (liveFree && liveFree.on()) await liveFree.rebrief(note);
         else if (liveFree) await liveFree.start(note);
         else add('examiner', label ? `Fokus: ${label}. Schreiben Sie los, oder sagen Sie "Fall" oder "Abfrage".` : 'Schreiben Sie los, oder sagen Sie "Fall" oder "Abfrage".');
       } catch (error) { toast(error.message, true); }
-      b.disabled = false; ta.focus();
+      b.disabled = false; paintStart(); ta.focus();
     };
+    $('#free-reset').onclick = () => { startThread(); paintStart(); ta.focus(); };
     $('#btn-send').onclick = async () => {
       const text = ta.value.trim(); if (!text || busy || !requireKey()) return;
-      busy = true; ta.value = ''; add('candidate', text); messages.push({ role: 'user', content: text });
+      busy = true; ta.value = ''; add('candidate', text); thread.messages.push({ role: 'user', content: text }); saveThread();
       const body = add('examiner', ''); body.innerHTML = '<span class="spinner"></span>';
       try {
         const { system } = await freeContext(text);
-        const full = await chatStream({ system, messages: messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
-        body.textContent = full; messages.push({ role: 'assistant', content: full });
+        const full = await chatStream({ system, messages: thread.messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
+        body.textContent = full; thread.messages.push({ role: 'assistant', content: full }); saveThread();
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; }
       busy = false; ta.focus(); body.scrollIntoView({ block: 'nearest' });
     };
+    // earlier conversations (FREI and NACHFRAGEN), newest first; click to continue one
+    async function listThreads() {
+      const el = $('#free-thread-list'); if (!el) return;
+      const all = await Store.listSessions();
+      const threads = all.filter((x) => x && (x.kind === 'frei' || x.kind === 'nachfrage') && x.n).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 25);
+      const sum = $('#free-threads summary'); if (sum) sum.textContent = `GESPRÄCHE · ${threads.length}`;
+      el.innerHTML = threads.length
+        ? threads.map((t) => `<li><a href="#" data-thread="${esc(t.id)}">${esc(t.title || 'Frei')}</a> <span class="faint">· ${new Date(t.updatedAt || t.startedAt).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${t.n} Nachrichten${t.kind === 'nachfrage' ? ' · Nachfrage' : ''}</span></li>`).join('')
+        : '<li class="muted">Noch keine.</li>';
+    }
+    $('#free-thread-list').onclick = async (e) => {
+      const a = e.target.closest('[data-thread]'); if (!a) return; e.preventDefault();
+      const full = await Store.getSession(a.dataset.thread); if (!full) { toast('Gespräch nicht gefunden', true); return; }
+      distillThread(thread);
+      thread = { ...full, kind: full.kind || 'frei', messages: full.messages || full.discussion || [], context: full.context || '', n: 0 };
+      chat.innerHTML = ''; for (const m of thread.messages) if (m.content) add(m.role === 'assistant' ? 'examiner' : 'candidate', m.content);
+      if (thread.focus) { $('#free-region').value = thread.focus.region || ''; $('#free-case').value = thread.focus.cid || ''; weak = !!thread.focus.weak; }
+      paintStart();
+      if (liveFree && liveFree.on()) { liveFree.stop(); await liveFree.start('Das frühere Gespräch wird fortgesetzt: knüpfe in einem Satz daran an und stelle die nächste Frage.'); }
+      toast('Gespräch geladen'); ta.focus();
+    };
+    listThreads();
+    const prevCleanup = currentCleanup; currentCleanup = () => { clearTimeout(saveTimer); if (thread.n) Store.putSession(thread); distillThread(thread); if (prevCleanup) prevCleanup(); };
   }
 
   // ------------------------------------------------------------------ MATERIAL
@@ -1830,7 +1945,6 @@
       const mean = grades.length ? grades.reduce((a, b) => a + b, 0) / grades.length : null;
       return { r, total: its.length, seen: seen.length, acc, due, exams: grades.length, cases: cases.length, mean };
     });
-    const weakItems = items.filter((it) => stats(it.id).seen).map((it) => ({ it, acc: accuracy(it.id) })).sort((a, b) => a.acc - b.acc).slice(0, 15);
     const flagged = items.filter((it) => stats(it.id).flag);
     const days = []; for (let i = 13; i >= 0; i -= 1) { const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10); days.push({ d, ...(state.daily[d] || {}) }); }
     const load = (d) => (d.quiz || 0) + (d.lazy || 0) + (d.exam || 0) * 10;
@@ -1849,10 +1963,18 @@
       <div class="table-wrap"><table class="table"><thead><tr><th>Region</th><th class="num">Items</th><th class="num">gesehen</th><th class="num">Treffer</th><th class="num">fällig</th><th class="num">Fälle</th><th class="num">Ø</th></tr></thead>
       <tbody>${regionRows.map((x) => `<tr><td>${esc(x.r)}<div class="bar"><span style="width:${x.total ? Math.round(100 * x.seen / x.total) : 0}%"></span></div></td><td class="num">${x.total}</td><td class="num">${x.seen}</td><td class="num ${x.acc == null ? 'faint' : x.acc < 0.6 ? 'warn' : x.acc < 0.8 ? 'signal' : 'ok'}">${x.acc == null ? '–' : `${Math.round(x.acc * 100)}%`}</td><td class="num">${x.due}</td><td class="num">${x.exams}/${x.cases}</td><td class="num ${gradeClass(x.mean)}">${fmtGrade(x.mean)}</td></tr>`).join('')}</tbody></table></div>
       <hr class="sep">
-      <div class="grid2">
-        <div><h3>Schwächste Items</h3>${weakItems.length ? `<ul class="clean">${weakItems.map(({ it, acc }) => `<li><span class="num ${acc < 0.5 ? 'warn' : 'signal'}">${Math.round(acc * 100)}%</span> &nbsp;${esc(it.q)}</li>`).join('')}</ul>` : '<p class="muted">Noch keine Daten.</p>'}</div>
-        <div><h3>Schwächste Fälle</h3>${(() => { const g = CASES.filter((c) => caseSummary(c.id).mean != null).sort((a, b) => caseSummary(a.id).mean - caseSummary(b.id).mean).slice(0, 12); return g.length ? `<ul class="clean">${g.map((c) => `<li><span class="num ${gradeClass(caseSummary(c.id).mean)}">${fmtGrade(caseSummary(c.id).mean)}</span> &nbsp;<a href="#exam/${c.id}">${esc(c.title)}</a></li>`).join('')}</ul>` : '<p class="muted">Noch keine Fallprüfung.</p>'; })()}</div>
+      ${(() => {
+        const pf = profileSummary();
+        const li = (cls, num, text, sub) => `<li><span class="num ${cls}">${num}</span> &nbsp;${text}${sub ? ` <span class="faint">· ${esc(sub)}</span>` : ''}</li>`;
+        const weak = [...pf.weakTopics.map((x) => li('warn', `${Math.round(x.acc * 100)}%`, esc(x.t), x.region)), ...pf.weakCases.map((x) => li(gradeClass(x.s.mean), fmtGrade(x.s.mean), `<a href="#exam/${x.c.id}">${esc(x.c.title)}</a>`, 'Fallprüfung')), ...pf.threadWeak.slice(-8).map((x) => li('warn', '✗', esc(x.thema), `${x.befund}${x.region ? ` · ${x.region}` : ''}`))];
+        const strong = [...pf.strongTopics.map((x) => li('ok', `${Math.round(x.acc * 100)}%`, esc(x.t), x.region)), ...pf.strongCases.map((x) => li('ok', fmtGrade(x.s.mean), esc(x.c.title), 'Fallprüfung')), ...pf.threadStrong.slice(-6).map((x) => li('ok', '✓', esc(x.thema), `${x.befund}${x.region ? ` · ${x.region}` : ''}`))];
+        return `<div class="row between"><h3 style="margin:0">Profil · Schwächen und Stärken</h3><a class="btn small primary" href="#free/weak">SCHWÄCHEN DRILLEN</a></div>
+      <div class="grid2" style="margin-top:12px">
+        <div><span class="label muted">SCHWÄCHEN</span>${weak.length ? `<ul class="clean" style="margin-top:8px">${weak.join('')}</ul>` : '<p class="muted" style="margin-top:8px">Noch keine Daten: Abfragen, Fälle und Gespräche füllen das Profil.</p>'}</div>
+        <div><span class="label muted">STÄRKEN</span>${strong.length ? `<ul class="clean" style="margin-top:8px">${strong.join('')}</ul>` : '<p class="muted" style="margin-top:8px">Noch keine.</p>'}</div>
       </div>
+      ${pf.fehlend.length ? `<p class="meta" style="margin-top:12px">ZULETZT GEFEHLT IN FALLPRÜFUNGEN · ${pf.fehlend.slice(-8).map((x) => esc(x)).join(' · ')}</p>` : ''}`;
+      })()}
       ${(state.methodLog || []).length ? `<hr class="sep"><h3>Methodik</h3><ul class="clean">${(state.methodLog || []).slice(-6).reverse().map((m) => `<li><span class="num ${gradeClass(m.struktur)}">${m.struktur ?? '–'}</span> &nbsp;${esc(m.tipp)} <span class="faint">· ${esc(caseById(m.caseId)?.title || m.caseId)}</span></li>`).join('')}</ul>` : ''}
       ${flagged.length ? `<hr class="sep"><h3>Gemeldete Items</h3><ul class="clean">${flagged.map((it) => `<li>${esc(it.q)} <span class="muted">→ ${esc(it.a)}</span> <button class="btn small ghost" data-unflag="${it.id}">OK</button></li>`).join('')}</ul>` : ''}
       <hr class="sep">

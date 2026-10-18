@@ -267,3 +267,7 @@ details.plain summary:hover { color: var(--ink); }
 /* read aloud on demand */
 .say { border: 0; background: transparent; color: var(--faint); font-size: 10px; padding: 0 4px; cursor: pointer; vertical-align: middle; letter-spacing: 0; }
 .say:hover { color: var(--signal); }
+
+/* FREI start */
+.btn.big { min-height: 48px; padding: 0 22px; font-size: 11px; }
+#free-threads ul.clean li { margin-bottom: 4px; }
