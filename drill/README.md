@@ -86,6 +86,17 @@ new image attachments become case images.
 **STATUS** — per-region accuracy, items due, case grades, weakest items and cases, daily
 activity, export/import.
 
+## Exam format
+
+The protocol follows the candidate's own notes on the Schlussprüfung 2. Teil: four unknown
+patients, 15 minutes each, two experts, patient papers with imaging, the five assessment
+aspects in the order above. Of these, "Besprechung klinischer Fälle mit zwei Examinatoren"
+and "vier Fallbesprechungen" are confirmed by public SIWF / swiss orthopaedics pages; the
+2004 edition of the Weiterbildungsprogramm gave 20–40 minutes per case, and the current
+edition's table could not be opened from this environment. The 1–6 grades per station are
+a training proxy, not the official scoring. Check the current Merkblatt once and adjust
+`STATIONS` and the timer in `prompts.js` / `app.js` if anything differs.
+
 ## Massstab
 
 Everything the model is told pulls toward the same target (`PRINCIPLES` in `prompts.js`):
@@ -145,9 +156,19 @@ one click. Toggle under ⚙.
   Remote images are downloaded through server.py (`/api/fetch`), since browsers cannot fetch
   cross-origin images themselves. In ABFRAGE/LAZY every image is also a drill item ("Befunden Sie das Bild"), graded
   by the vision model. Images from PPTX files you dump are extracted the same way.
-- `data/bank/*.js` — 256 hand-written seed items by region. Edit freely: one line per
-  item `[type, topic, question, answer]`. Items are identified by their question text, so
-  changing a question resets its progress.
+- `data/bank/*.js` — 299 seed items by region. Edit freely: one line per item
+  `[type, topic, question, answer]`. Items are identified by their question text, so
+  changing a question resets its progress. Audited Oct 2026 against the bar above: every
+  row was checked by a Swiss-examiner pass and two independent verifiers (facts / safety,
+  exam completeness); 158 answers were shortened to the decision-relevant core (average
+  100 → 83 words), about 20 factual errors were corrected (among them: lag-screw hole
+  definitions, hip-spine impingement directions, OF-score threshold, Judet views, atlas
+  classification eponym, ASIA syndrome prognoses, Mason II indication, Soong grades,
+  metacarpal malrotation rule, posterior-malleolus eponym, KD-III subtypes, AO 31-A2
+  subgroups, ARCO 2019 thresholds, paediatric antibiotic durations, DAIR / Willenegger-Roth
+  timing, colchicine flare dosing), and 43 missing fundamentals were added (standard
+  approaches with their danger structures, Aufklärung contents, standard Nachbehandlung,
+  emergency first steps, UVG basics).
 - `prompts.js` — the examiner protocol. Everything the model is told is here, including the
   voice addenda (`voiceExaminer`, `voiceOpen`, `voiceTurn`, `voiceTutor`) and the lookup tool.
 - `voice.js` — the one WebRTC connection to the Realtime API (microphone in, examiner voice
