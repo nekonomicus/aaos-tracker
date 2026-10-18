@@ -88,6 +88,10 @@
       materialsIndex = materialsIndex.filter((m) => m.id !== id);
       if (!serverOk) localStorage.setItem('fmhdrill.materials.index', JSON.stringify(materialsIndex));
     },
+    async getSession(id) {
+      if (serverOk) return fetch(`/api/sessions/${id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      return JSON.parse(localStorage.getItem(`fmhdrill.session.${id}`) || 'null');
+    },
     async putSession(session) {
       if (serverOk) await fetch(`/api/sessions/${session.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
       else { try { localStorage.setItem(`fmhdrill.session.${session.id}`, JSON.stringify(session)); } catch { /* grade is kept in state */ } }
@@ -417,6 +421,30 @@
     return out;
   }
 
+  // chat about a verdict or a feedback sheet; messages are kept in `holder.discussion`
+  function discussion(container, contextText, holder, onChange) {
+    holder.discussion = holder.discussion || [];
+    container.innerHTML = `<details class="plain discuss" ${holder.discussion.length ? 'open' : ''}><summary>NACHFRAGEN</summary>
+      <div class="chat small" id="d-chat"></div>
+      <textarea class="answer" id="d-input" style="min-height:70px" placeholder="Warum? Wie formuliere ich das besser? … ⌘/Ctrl+Enter sendet"></textarea>
+      <div class="answer-tools"><button class="btn rec small" id="d-mic">● SPRECHEN</button><span class="spacer"></span><button class="btn small primary" id="d-send">SENDEN</button></div></details>`;
+    const chat = container.querySelector('#d-chat'); const ta = container.querySelector('#d-input'); let busy = false;
+    const add = (role, text) => { const div = document.createElement('div'); div.className = `msg ${role}`; div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER' : 'DU'}</div><div class="body"></div>`; div.querySelector('.body').textContent = text; chat.appendChild(div); return div.querySelector('.body'); };
+    for (const m of holder.discussion) add(m.role === 'assistant' ? 'examiner' : 'candidate', m.content);
+    wireMic(container.querySelector('#d-mic'), ta);
+    ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); container.querySelector('#d-send').click(); } });
+    container.querySelector('#d-send').onclick = async () => {
+      const text = ta.value.trim(); if (!text || busy || !requireKey()) return;
+      busy = true; ta.value = ''; add('candidate', text); holder.discussion.push({ role: 'user', content: text });
+      const body = add('examiner', ''); body.innerHTML = '<span class="spinner"></span>';
+      try {
+        const full = await chatStream({ system: P.discussSystem(state.settings, contextText), messages: holder.discussion, onDelta: (t) => { body.textContent = t; } });
+        body.textContent = full; holder.discussion.push({ role: 'assistant', content: full });
+        if (onChange) onChange();
+      } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; holder.discussion.pop(); }
+      busy = false; ta.focus(); body.scrollIntoView({ block: 'nearest' });
+    };
+  }
   function latestTip() { const log = state.methodLog || []; return log.length ? log[log.length - 1].tipp : ''; }
   function answerMetrics(session) {
     const answers = session.transcript.filter((m) => m.role === 'candidate').map((m) => m.text.trim().split(/\s+/).filter(Boolean).length);
@@ -459,7 +487,8 @@
     view.innerHTML = `
       ${hero(`PRÜFUNG · ${done}/${CASES.length} FÄLLE · Ø ${fmtGrade(mean)}`, 'Fall-Matrix')}
       <div class="row" style="margin:-8px 0 26px">
-        <button class="btn primary" id="btn-next">NÄCHSTER OFFENER FALL</button>
+        ${state.activeExam ? `<button class="btn primary" id="btn-resume">LAUFENDEN FALL FORTSETZEN · ${esc(caseById(state.activeExam.caseId)?.title || '')}</button>` : ''}
+        <button class="btn ${state.activeExam ? '' : 'primary'}" id="btn-next">NÄCHSTER OFFENER FALL</button>
         <button class="btn" id="btn-random">ZUFALL</button>
         <button class="btn" id="btn-weak">SCHWÄCHSTER FALL</button>
       </div>
@@ -478,6 +507,7 @@
         </section>`;
       }).join('')}`;
     view.addEventListener('click', (e) => { const b = e.target.closest('.case-row'); if (b) location.hash = `#exam/${b.dataset.case}`; });
+    if ($('#btn-resume')) $('#btn-resume').onclick = () => { location.hash = `#exam/${state.activeExam.caseId}`; };
     $('#btn-next').onclick = () => { const c = CASES.find((x) => caseSummary(x.id).runs === 0) || CASES[0]; location.hash = `#exam/${c.id}`; };
     $('#btn-random').onclick = () => { location.hash = `#exam/${CASES[Math.floor(Math.random() * CASES.length)].id}`; };
     $('#btn-weak').onclick = () => {
@@ -491,7 +521,13 @@
     if (!caseId) return renderMatrix();
     const caseItem = caseById(caseId);
     if (!caseItem) { location.hash = '#exam'; return; }
-    const session = { id: `${today().replace(/-/g, '')}-${uid()}`, caseId, title: caseItem.title, startedAt: Date.now(), status: 'laufend', dossier: null, image: null, messages: [], transcript: [], station: 0, followup: 0, feedback: null };
+    const resumeId = state.activeExam?.caseId === caseId ? state.activeExam.id : null;
+    if (resumeId) { Store.getSession(resumeId).then((saved) => { if (saved && saved.status === 'laufend' && saved.dossier) runExam(caseItem, saved); else { state.activeExam = null; Store.saveState(); runExam(caseItem, null); } }); return; }
+    runExam(caseItem, null);
+  }
+  function runExam(caseItem, saved) {
+    const caseId = caseItem.id;
+    const session = saved || { id: `${today().replace(/-/g, '')}-${uid()}`, caseId, title: caseItem.title, startedAt: Date.now(), status: 'laufend', dossier: null, image: null, messages: [], transcript: [], station: 0, followup: 0, feedback: null };
     const history = state.caseLog[caseId] || [];
     const previous = history.map((l) => l.variant).filter(Boolean).slice(-6);
     const difficulty = history.length === 0 ? 'Standardfall, typische Präsentation.' : (history[history.length - 1].grade >= 5 ? 'Anspruchsvoll: Begleitverletzung, relevante Komorbidität oder Komplikation im Verlauf einbauen.' : 'Standardfall, aber andere Variante.');
@@ -529,15 +565,28 @@
     const transcriptEl = $('#transcript'); const answerEl = $('#answer'); const sendBtn = $('#btn-send'); const askBtn = $('#btn-ask');
     wireMic($('#mic'), answerEl);
     answerEl.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendBtn.click(); } });
-    $('#btn-abort').onclick = () => { if (confirm('Fall abbrechen? Es wird nichts gewertet.')) location.hash = '#exam'; };
+    $('#btn-abort').onclick = () => { if (confirm('Fall abbrechen? Es wird nichts gewertet.')) { state.activeExam = null; session.status = 'abgebrochen'; Store.putSession(session); Store.saveState(); location.hash = '#exam'; } };
+    function showDossier(dossier, image) {
+      $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN</span><p>${esc(dossier.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span>${image ? `<div class="case-images"><img src="${esc(image.src)}" data-zoom alt=""></div><div class="img-credit">${esc(image.credit)}</div>` : ''}<p>${esc(dossier.bildgebung)}</p>`;
+    }
+    async function resume() {
+      session.system = session.system || P.examinerSystem(state.settings, caseItem, session.dossier, await groundingForCase(caseItem), memoryFor(caseItem));
+      showDossier(session.dossier, session.image);
+      for (const m of session.transcript) addMsg(m.role, m.text, true);
+      $('#answer-box').hidden = false;
+      const stationNow = session.station; const followupNow = session.followup;
+      setStation(stationNow); session.followup = followupNow;
+      startTimer(); answerEl.focus();
+      toast('Fall fortgesetzt');
+    }
 
-    function addMsg(role, text) {
-      session.transcript.push({ role, text, t: Date.now() });
+    function addMsg(role, text, replay = false) {
+      if (!replay) session.transcript.push({ role, text, t: Date.now() });
       const div = document.createElement('div'); div.className = `msg ${role}`;
       div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER' : role === 'candidate' ? 'KANDIDAT' : 'SYSTEM'}</div><div class="body">${esc(text)}</div>`;
       transcriptEl.appendChild(div);
       div.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      if (role === 'examiner' && state.settings.examinerVoice) speak(text);
+      if (role === 'examiner' && state.settings.examinerVoice && !replay) speak(text);
     }
     function setStation(i) {
       session.station = i; session.followup = 0;
@@ -553,7 +602,7 @@
       addMsg('examiner', opener);
     }
     function startTimer() {
-      const end = Date.now() + 15 * 60000;
+      const end = session.startedAt + 15 * 60000;
       timerId = setInterval(() => {
         const left = end - Date.now(); const el = $('#timer'); if (!el) return clearInterval(timerId);
         const abs = Math.abs(left); const m = Math.floor(abs / 60000); const s = Math.floor((abs % 60000) / 1000);
@@ -576,11 +625,12 @@
         if (!chosen) { dossier.bild_geeignet = false; dossier.bild_index = -1; }
         session.dossier = dossier; session.image = chosen ? { src: chosen.src, credit: chosen.credit } : null;
         session.system = P.examinerSystem(state.settings, caseItem, dossier, grounding, memory);
-        $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN</span><p>${esc(dossier.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span>${chosen ? `<div class="case-images"><img src="${esc(chosen.src)}" data-zoom alt=""></div><div class="img-credit">${esc(chosen.credit)}</div>` : ''}<p>${esc(dossier.bildgebung)}</p>`;
+        showDossier(dossier, session.image);
         $('#answer-box').hidden = false;
         startTimer();
         openStation(0);
         answerEl.focus();
+        state.activeExam = { id: session.id, caseId }; clearTimeout(Store._timer); Store.flush();
         Store.putSession(session);
       } catch (error) {
         $('#dossier').innerHTML = `<p class="warn">Fall konnte nicht erstellt werden: ${esc(error.message)}</p><button class="btn" onclick="location.reload()">NOCHMALS</button>`;
@@ -635,7 +685,7 @@
         session.feedback = fb; session.status = 'beendet'; session.endedAt = Date.now(); session.grade = fb.note;
         (state.caseLog[caseId] = state.caseLog[caseId] || []).push({ t: Date.now(), grade: fb.note, noten: fb.noten, sessionId: session.id, variant: session.dossier.titel, fehlend: (fb.fehlend || []).slice(0, 6) });
         if (fb.methodik?.tipp) (state.methodLog = state.methodLog || []).push({ t: Date.now(), caseId, tipp: fb.methodik.tipp, struktur: fb.noten?.struktur });
-        bump('exam');
+        state.activeExam = null; bump('exam');
         const added = await addItems(fb.drills || [], `prüfung ${caseId}`, [caseId]);
         Store.putSession(session);
         renderFeedback(fb, added);
@@ -660,13 +710,16 @@
         <h3>Musterantwort-Gerüst</h3>
         <div class="muster">${P.STATIONS.map((s, i) => `<p><span class="label">${i + 1} · ${esc(s.label)}</span>${esc(fb.musterantwort[`station${i + 1}`])}</p>`).join('')}</div>
         <p class="meta">${added} NEUE ABFRAGE-ITEMS AUS DEINEN LÜCKEN</p>
+        <div id="fb-discuss" style="margin:18px 0"></div>
         <div class="row" style="margin-top:16px"><button class="btn primary" id="fb-again">GLEICHER FALL, NEUE VARIANTE</button><button class="btn" id="fb-next">NÄCHSTER OFFENER FALL</button><button class="btn ghost" id="fb-matrix">MATRIX</button></div>`;
       transcriptEl.appendChild(div); div.scrollIntoView({ behavior: 'smooth' });
+      const transcript = session.transcript.filter((m) => m.role !== 'system').map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n');
+      discussion($('#fb-discuss'), `FALL: ${caseItem.title}\nLÖSUNG: ${JSON.stringify(session.dossier.loesung)}\nBILDBEFUND: ${session.dossier.bild_befund || '-'}\nTRANSKRIPT:\n${transcript}\nBEWERTUNG: ${JSON.stringify(fb)}`, session, () => Store.putSession(session));
       $('#fb-again').onclick = () => { navigate(); };
       $('#fb-next').onclick = () => { const c = CASES.find((x) => caseSummary(x.id).runs === 0) || CASES[0]; location.hash = `#exam/${c.id}`; if (c.id === caseId) navigate(); };
       $('#fb-matrix').onclick = () => { location.hash = '#exam'; };
     }
-    begin();
+    if (saved) resume(); else begin();
   }
 
   // ------------------------------------------------------------------ filters (shared by quiz/lazy)
@@ -711,9 +764,25 @@
   }
 
   // ------------------------------------------------------------------ QUIZ
+  // A quiz or lazy session lives in state.sessions[key] until it is finished or discarded,
+  // so a refresh or a detour to another view never loses it.
+  function savedSession(key) { const sess = (state.sessions || {})[key]; return sess && sess.i < sess.ids.length ? sess : null; }
+  function saveSession(key, sess) { (state.sessions = state.sessions || {})[key] = sess; clearTimeout(Store._timer); Store.flush(); }
+  function clearSession(key) { if (state.sessions) delete state.sessions[key]; clearTimeout(Store._timer); Store.flush(); }
+  function itemsById(ids) { const map = new Map(allItems().map((it) => [it.id, it])); return ids.map((id) => map.get(id)).filter(Boolean); }
+  function resumeBar(key, onResume) {
+    const sess = savedSession(key); if (!sess) return '';
+    return `<div class="row resume" style="margin-bottom:18px"><button class="btn primary" id="btn-resume">FORTSETZEN · ${sess.i}/${sess.ids.length}</button><button class="btn ghost" id="btn-discard">VERWERFEN</button><span class="meta">SESSION VOM ${new Date(sess.startedAt).toLocaleDateString('de-CH')}</span></div>`;
+  }
+  function wireResume(key, run) {
+    const sess = savedSession(key); if (!sess) return;
+    $('#btn-resume').onclick = () => { $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; $('.resume').hidden = true; run(sess); };
+    $('#btn-discard').onclick = () => { clearSession(key); navigate(); };
+  }
   function renderQuiz() {
-    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button></div><div id="stage" style="margin-top:28px"></div>`;
+    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}${resumeBar('quiz')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button></div><div id="stage" style="margin-top:28px"></div>`;
     const f = filterBar($('#filters'), 'quiz', {});
+    wireResume('quiz', (sess) => runQuiz(sess, $('#stage')));
     $('#btn-gen').onclick = async () => {
       const b = $('#btn-gen'); b.disabled = true; b.innerHTML = '<span class="spinner"></span>';
       try { const n = await generateMore(f); toast(`${n} neue Items`); $('#f-count-label').textContent = `${filterItems(f).length} ITEMS`; }
@@ -724,34 +793,38 @@
       if (!requireKey()) return;
       const items = pickSession(filterItems(f), f.count);
       if (!items.length) { toast('Keine Items für diese Auswahl.', true); return; }
-      $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true;
-      runQuiz(items, $('#stage'));
+      $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; if ($('.resume')) $('.resume').hidden = true;
+      const sess = { ids: items.map((it) => it.id), i: 0, results: [], requeue: [], startedAt: Date.now(), verdict: null };
+      saveSession('quiz', sess);
+      runQuiz(sess, $('#stage'));
     };
   }
-  function runQuiz(items, stage) {
-    let i = 0; const results = []; let phase = 'ask'; let busy = false; const requeue = [];
+  function runQuiz(sess, stage) {
+    let busy = false;
+    const save = () => saveSession('quiz', sess);
+    const counts = () => `${sess.results.filter((r) => r === 2).length} ✓ · ${sess.results.filter((r) => r === 1).length} ~ · ${sess.results.filter((r) => r === 0).length} ✗`;
     function show() {
-      const item = items[i];
-      if (!item) return summary();
+      const item = itemsById([sess.ids[sess.i]])[0];
+      if (sess.i >= sess.ids.length) return summary();
+      if (!item) { sess.i += 1; save(); return show(); }
       const s = stats(item.id);
       stage.innerHTML = `
-        <div class="quiz-head"><span class="meta">${i + 1}/${items.length} · ${esc(item.region)}${s.seen ? ` · BOX ${s.box}` : ''}</span><span class="meta">${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</span></div>
+        <div class="quiz-head"><span class="meta">${sess.i + 1}/${sess.ids.length} · ${esc(item.region)}${s.seen ? ` · BOX ${s.box}` : ''}</span><span class="meta">${counts()}</span></div>
         <div class="meta">${esc(item.topic)}</div>
         <div class="quiz-q">${esc(item.q)}</div>
         ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
-        <textarea class="answer" id="answer" placeholder="Antwort · Enter sendet, Shift+Enter neue Zeile"></textarea>
-        <div class="answer-tools"><button class="btn rec" id="mic">● SPRECHEN</button><span class="spacer"></span><button class="btn ghost" id="btn-skip">WEISS ICH NICHT</button><button class="btn primary" id="btn-send">ANTWORTEN</button></div>
+        <div id="ask"><textarea class="answer" id="answer" placeholder="Antwort · Enter sendet, Shift+Enter neue Zeile"></textarea>
+        <div class="answer-tools"><button class="btn rec" id="mic">● SPRECHEN</button><span class="spacer"></span><button class="btn ghost" id="btn-skip">WEISS ICH NICHT</button><button class="btn primary" id="btn-send">ANTWORTEN</button></div></div>
         <div id="verdict"></div>`;
-      const ta = $('#answer'); ta.focus();
+      const ta = $('#answer');
       wireMic($('#mic'), ta);
-      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (phase === 'ask') $('#btn-send').click(); else next(); } });
-      $('#btn-send').onclick = () => grade(ta.value.trim());
-      $('#btn-skip').onclick = () => grade('');
-      phase = 'ask';
+      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sess.verdict) $('#btn-send').click(); } });
+      $('#btn-send').onclick = () => grade(item, ta.value.trim());
+      $('#btn-skip').onclick = () => grade(item, '');
+      if (sess.verdict) showVerdict(item); else ta.focus();
     }
-    async function grade(answer) {
+    async function grade(item, answer) {
       if (busy) return; busy = true;
-      const item = items[i];
       $('#btn-send').disabled = true; $('#btn-skip').disabled = true;
       let result; let modelAnswer = item.a;
       $('#verdict').innerHTML = '<div class="thinking" style="margin-top:14px"><span class="spinner"></span></div>';
@@ -764,24 +837,38 @@
         else result = await chatJSON({ system: P.gradeSystem(state.settings), messages: [{ role: 'user', content: P.gradePrompt(item, answer) }], schema: P.GRADE_SCHEMA, name: 'korrektur' });
       } catch (error) { $('#verdict').innerHTML = `<p class="warn">${esc(error.message)}</p>`; $('#btn-send').disabled = false; $('#btn-skip').disabled = false; busy = false; return; }
       const score = Math.max(0, Math.min(2, Number(result.score) || 0));
-      results.push(score); schedule(item.id, score); bump('quiz'); if (score === 2) bump('quizRight');
-      if (score === 0 && !requeue.includes(item.id) && items.length < 60) { requeue.push(item.id); items.push(item); }
+      sess.results.push(score); schedule(item.id, score); bump('quiz'); if (score === 2) bump('quizRight');
+      if (score === 0 && !sess.requeue.includes(item.id) && sess.ids.length < 60) { sess.requeue.push(item.id); sess.ids.push(item.id); }
+      sess.verdict = { score, modelAnswer, urteil: result.urteil || '', fehlend: result.fehlend || [], answer, discussion: [] };
+      save(); busy = false;
+      showVerdict(item);
+    }
+    function showVerdict(item) {
+      const v = sess.verdict; const score = v.score;
+      $('#ask').hidden = true;
       $('#verdict').innerHTML = `
         <div class="verdict s${score}">
           <span class="label ${score === 2 ? 'ok' : score === 1 ? 'signal' : 'warn'}">${score === 2 ? 'KORREKT' : score === 1 ? 'TEILWEISE' : 'FALSCH'}</span>
-          <div class="model">${esc(modelAnswer)}</div>
-          <div class="judge">${esc(result.urteil || '')}${result.fehlend?.length ? ` · fehlt: ${esc(result.fehlend.join(', '))}` : ''}</div>
+          ${v.answer ? `<div class="judge" style="margin:0 0 10px">DU: ${esc(v.answer)}</div>` : ''}
+          <div class="model">${esc(v.modelAnswer)}</div>
+          <div class="judge">${esc(v.urteil)}${v.fehlend?.length ? ` · fehlt: ${esc(v.fehlend.join(', '))}` : ''}</div>
           <div class="row" style="margin-top:14px"><button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button><button class="btn ghost small" id="btn-fix" title="Musterantwort falsch oder unpassend">MELDEN</button></div>
+          <div id="q-discuss" style="margin-top:14px"></div>
         </div>`;
-      phase = 'show'; busy = false;
       $('#btn-next').onclick = next; $('#btn-next').focus();
       $('#btn-fix').onclick = () => { const s = stats(item.id); s.flag = !s.flag; state.items[item.id] = s; Store.saveState(); toast(s.flag ? 'Markiert · unter STATUS' : 'Markierung entfernt'); };
-      if (state.settings.readAloud) readAloud(modelAnswer);
+      discussion($('#q-discuss'), `FRAGE: ${item.q}\nMUSTERANTWORT: ${v.modelAnswer}\nANTWORT DES KANDIDATEN: ${v.answer || '(keine)'}\nBEWERTUNG: ${score}/2 · ${v.urteil}${v.fehlend?.length ? ` · fehlt: ${v.fehlend.join(', ')}` : ''}`, v, save);
+      if (state.settings.readAloud) readAloud(v.modelAnswer);
     }
-    function next() { i += 1; show(); }
+    function onKey(e) { if (sess.verdict && e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') { e.preventDefault(); next(); } }
+    document.addEventListener('keydown', onKey);
+    currentCleanup = () => document.removeEventListener('keydown', onKey);
+    function next() { sess.i += 1; sess.verdict = null; save(); show(); }
     function summary() {
-      const n = results.length; const pts = results.reduce((a, b) => a + b, 0);
-      stage.innerHTML = `<span class="kicker">FERTIG</span><div class="row" style="gap:24px"><div class="big-grade">${n ? Math.round(100 * pts / (2 * n)) : 0}%</div><div class="meta">${n} FRAGEN · ${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</div></div><div class="row" style="margin-top:22px"><button class="btn primary" id="again">NOCHMALS</button><button class="btn ghost" id="to-status">STATUS</button></div>`;
+      document.removeEventListener('keydown', onKey);
+      const n = sess.results.length; const pts = sess.results.reduce((a, b) => a + b, 0);
+      clearSession('quiz');
+      stage.innerHTML = `<span class="kicker">FERTIG</span><div class="row" style="gap:24px"><div class="big-grade">${n ? Math.round(100 * pts / (2 * n)) : 0}%</div><div class="meta">${n} FRAGEN · ${counts()}</div></div><div class="row" style="margin-top:22px"><button class="btn primary" id="again">NOCHMALS</button><button class="btn ghost" id="to-status">STATUS</button></div>`;
       $('#again').onclick = () => navigate(); $('#to-status').onclick = () => { location.hash = '#status'; };
     }
     show();
@@ -789,23 +876,30 @@
 
   // ------------------------------------------------------------------ LAZY
   function renderLazy() {
-    view.innerHTML = `${hero('LAZY · <span class="kbd">Space</span> ZEIGT · <span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> BEWERTEN', 'Lazy')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost ${state.settings.readAloud ? 'on' : ''}" id="btn-read">VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}</button></div><div id="stage" style="margin-top:28px"></div>`;
+    view.innerHTML = `${hero('LAZY · <span class="kbd">Space</span> ZEIGT · <span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> BEWERTEN', 'Lazy')}${resumeBar('lazy')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost ${state.settings.readAloud ? 'on' : ''}" id="btn-read">VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}</button></div><div id="stage" style="margin-top:28px"></div>`;
     const f = filterBar($('#filters'), 'lazy', { lazy: true });
+    wireResume('lazy', (sess) => runLazy(sess, $('#stage')));
     $('#btn-read').onclick = (e) => { state.settings.readAloud = !state.settings.readAloud; Store.saveState(); e.target.classList.toggle('on'); e.target.textContent = `VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}`; };
     $('#btn-start').onclick = () => {
       const items = pickSession(filterItems(f, { lazy: true }), f.count);
       if (!items.length) { toast('Keine Items für diese Auswahl.', true); return; }
-      $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true;
-      runLazy(items, $('#stage'));
+      $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; if ($('.resume')) $('.resume').hidden = true;
+      const sess = { ids: items.map((it) => it.id), i: 0, results: [], startedAt: Date.now() };
+      saveSession('lazy', sess);
+      runLazy(sess, $('#stage'));
     };
   }
-  function runLazy(items, stage) {
-    let i = 0; let revealed = false; const results = [];
+  function runLazy(sess, stage) {
+    let revealed = false;
+    const save = () => saveSession('lazy', sess);
+    const counts = () => `${sess.results.filter((r) => r === 2).length} ✓ · ${sess.results.filter((r) => r === 1).length} ~ · ${sess.results.filter((r) => r === 0).length} ✗`;
+    function current() { return itemsById([sess.ids[sess.i]])[0]; }
     function show() {
-      const item = items[i]; if (!item) return summary();
+      if (sess.i >= sess.ids.length) return summary();
+      const item = current(); if (!item) { sess.i += 1; save(); return show(); }
       revealed = false;
       stage.innerHTML = `
-        <div class="quiz-head"><span class="meta">${i + 1}/${items.length} · ${esc(item.region)}</span><span class="meta">${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</span></div>
+        <div class="quiz-head"><span class="meta">${sess.i + 1}/${sess.ids.length} · ${esc(item.region)}</span><span class="meta">${counts()}</span></div>
         <div class="meta">${esc(item.topic)}</div>
         <div class="quiz-q">${esc(item.q)}</div>
         ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
@@ -815,13 +909,13 @@
     }
     function reveal() {
       if (revealed) return; revealed = true;
-      const item = items[i];
+      const item = current();
       $('#a').innerHTML = `<div class="lazy-a">${esc(item.a)}</div>
         <div class="rate"><button class="btn danger" data-s="0">NICHT GEWUSST <span class="kbd">1</span></button><button class="btn" data-s="1">HALB <span class="kbd">2</span></button><button class="btn on" data-s="2">GEWUSST <span class="kbd">3</span></button></div>`;
       $('#a').querySelectorAll('[data-s]').forEach((b) => { b.onclick = () => rate(Number(b.dataset.s)); });
       if (state.settings.readAloud) readAloud(item.a);
     }
-    function rate(score) { const item = items[i]; results.push(score); schedule(item.id, score); bump('lazy'); i += 1; show(); }
+    function rate(score) { const item = current(); sess.results.push(score); schedule(item.id, score); bump('lazy'); sess.i += 1; save(); show(); }
     function onKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || !lightbox.hidden) return;
       if (e.key === ' ') { e.preventDefault(); reveal(); }
@@ -831,7 +925,8 @@
     currentCleanup = () => document.removeEventListener('keydown', onKey);
     function summary() {
       document.removeEventListener('keydown', onKey);
-      const n = results.length; const pts = results.reduce((a, b) => a + b, 0);
+      const n = sess.results.length; const pts = sess.results.reduce((a, b) => a + b, 0);
+      clearSession('lazy');
       stage.innerHTML = `<span class="kicker">FERTIG</span><div class="row" style="gap:24px"><div class="big-grade">${n ? Math.round(100 * pts / (2 * n)) : 0}%</div><div class="meta">${n} KARTEN</div></div><div class="row" style="margin-top:22px"><button class="btn primary" id="again">NOCHMALS</button></div>`;
       $('#again').onclick = () => navigate();
     }

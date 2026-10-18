@@ -382,11 +382,22 @@ ${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}
 ${langLine(settings)}${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
 
+  // ------------------------------------------------------------------ DISCUSS
+  function discussSystem(settings, context) {
+    return `Du bist der Prüfungsexperte, der soeben bewertet hat, jetzt im Gespräch nach der Prüfung. Der Kandidat darf nachfragen: warum etwas falsch oder unvollständig war, wie die Musterantwort begründet ist, wie er es beim nächsten Mal formulieren soll, Hintergrund zu Klassifikation, Zahlen, Technik.
+Regeln: direkt antworten, Telegrammstil, max. 150 Wörter pro Antwort, Fachbegriffe exakt, Zahlen mit Einheit, keine Floskeln, kein Lob, keine Emojis, keine Überschriften mit #. Wenn der Kandidat recht hat und die Bewertung zu streng war, sag das klar und korrigiere die Einschätzung. Wenn er eine bessere Formulierung will, gib sie als sprechbaren Satz. Ende jeder Antwort ohne Gegenfrage, ausser der Kandidat will geprüft werden.
+${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}` : ''}
+${langLine(settings)}
+
+KONTEXT (Frage, Musterantwort, Antwort des Kandidaten, Bewertung):
+${context}`;
+  }
+
   window.PROMPTS = {
     REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,
     extractSystem, extractPrompt, generateSystem, generatePrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
-    commonsQueryPrompt, COMMONS_SCHEMA, freeSystem,
+    commonsQueryPrompt, COMMONS_SCHEMA, freeSystem, discussSystem,
   };
 })();

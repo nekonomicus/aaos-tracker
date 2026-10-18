@@ -238,3 +238,9 @@ details.plain summary:hover { color: var(--ink); }
 .methodik { border-left: 2px solid var(--line); padding: 4px 0 4px 16px; margin: 0 0 22px; }
 .methodik .schema { margin: 6px 0 10px; }
 .methodik .tipp { font-size: 16px; font-weight: 600; }
+
+/* discussion */
+.discuss .chat.small { gap: 10px; min-height: 0; margin: 10px 0 8px; }
+.discuss .chat.small .msg .body { font-size: 14px; white-space: pre-wrap; }
+.discuss .chat.small .msg.candidate .body { color: var(--muted); }
+.discuss summary { color: var(--signal); }
