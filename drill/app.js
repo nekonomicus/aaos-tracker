@@ -677,9 +677,9 @@
   }
 
   // chat about a verdict or a feedback sheet; messages are kept in `holder.discussion`
-  function discussion(container, contextText, holder, onChange, sourceQuery = '') {
+  function discussion(container, contextText, holder, onChange, sourceQuery = '', opts = {}) {
     holder.discussion = holder.discussion || [];
-    container.innerHTML = `<details class="plain discuss" ${holder.discussion.length ? 'open' : ''}><summary>NACHFRAGEN</summary>
+    container.innerHTML = `<details class="plain discuss" ${holder.discussion.length || opts.open ? 'open' : ''}><summary>NACHFRAGEN</summary>
       <div class="chat small" id="d-chat"></div>
       <textarea class="answer" id="d-input" style="min-height:70px" placeholder="Warum? Wie formuliere ich das besser? … ⌘/Ctrl+Enter sendet"></textarea>
       <div class="answer-tools"><button class="btn rec small" id="d-mic">● SPRECHEN</button><span class="spacer"></span><button class="btn small primary" id="d-send">SENDEN</button></div></details>`;
@@ -693,7 +693,7 @@
       system: async () => { const passages = await lookup(sourceQuery, 4000, { k: 5 }).catch(() => ''); return P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab):\n<<<\n${passages}\n>>>` : ''); },
       onTurn: (entry, fresh) => { if (fresh) holder.discussion.push(entry); if (onChange) onChange(); },
       history: () => holder.discussion,
-      greeting: 'Sage in einem Satz, dass der Kandidat jetzt zur Bewertung nachfragen kann.',
+      greeting: opts.greeting || 'Sage in einem Satz, dass der Kandidat jetzt zur Bewertung nachfragen kann.',
     });
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); container.querySelector('#d-send').click(); } });
     container.querySelector('#d-send').onclick = async () => {
@@ -1421,11 +1421,12 @@
     };
   }
   function runLazy(sess, stage) {
-    let revealed = false;
+    let revealed = false; let liveChat = null;
     const save = () => saveSession('lazy', sess);
     const counts = () => `${sess.results.filter((r) => r === 2).length} ✓ · ${sess.results.filter((r) => r === 1).length} ~ · ${sess.results.filter((r) => r === 0).length} ✗`;
     function current() { return itemsById([sess.ids[sess.i]])[0]; }
     function show() {
+      if (liveChat) { liveChat.stop(); liveChat = null; }
       if (sess.i >= sess.ids.length) return summary();
       const item = current(); if (!item) { sess.i += 1; save(); return show(); }
       revealed = false;
@@ -1436,17 +1437,23 @@
         ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
         <div id="a"><button class="btn" id="btn-reveal">ANTWORT <span class="kbd">Space</span></button></div>`;
       $('#btn-reveal').onclick = reveal;
+      if (sess.talk && sess.talk.id === item.id) { reveal(); return; } // the card was open (and maybe discussed) before a reload
       if (state.settings.readAloud) readAloud(item.q);
     }
     function reveal() {
       if (revealed) return; revealed = true;
       const item = current();
       $('#a').innerHTML = `<div class="lazy-a">${esc(item.a)}</div>
-        <div class="rate"><button class="btn danger" data-s="0">NICHT GEWUSST <span class="kbd">1</span></button><button class="btn" data-s="1">HALB <span class="kbd">2</span></button><button class="btn on" data-s="2">GEWUSST <span class="kbd">3</span></button></div>`;
+        <div class="rate"><button class="btn danger" data-s="0">NICHT GEWUSST <span class="kbd">1</span></button><button class="btn" data-s="1">HALB <span class="kbd">2</span></button><button class="btn on" data-s="2">GEWUSST <span class="kbd">3</span></button></div>
+        <div id="lazy-discuss" style="margin-top:16px"></div>`;
       $('#a').querySelectorAll('[data-s]').forEach((b) => { b.onclick = () => rate(Number(b.dataset.s)); });
+      // talk to the examiner about this card: why, how to say it, what hangs together with it
+      if (!sess.talk || sess.talk.id !== item.id) sess.talk = { id: item.id, discussion: [] };
+      liveChat = discussion($('#lazy-discuss'), `LAZY-KARTE (nicht bewertet; der Kandidat hat die Antwort gelesen und will sie verstehen oder üben)\nFRAGE: ${item.q}\nMUSTERANTWORT: ${item.a}`, sess.talk, save, `${item.topic || ''} ${item.q}`, { open: true, greeting: 'Sage in einem Satz, dass der Kandidat jetzt zu dieser Karte nachfragen oder sich abfragen lassen kann.' });
+      save();
       if (state.settings.readAloud) readAloud(item.a);
     }
-    function rate(score) { const item = current(); sess.results.push(score); schedule(item.id, score); bump('lazy'); sess.i += 1; save(); show(); }
+    function rate(score) { const item = current(); sess.results.push(score); schedule(item.id, score); bump('lazy'); sess.i += 1; sess.talk = null; save(); show(); }
     function onKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || !lightbox.hidden) return;
       if (e.key === ' ') { e.preventDefault(); reveal(); }

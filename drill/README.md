@@ -69,7 +69,9 @@ session and sooner in later sessions (Leitner boxes: 0, 1, 3, 7, 14, 30 days).
 presentation corpus.
 
 **LAZY** — same items, no typing, no API cost: read (or have it read aloud with the
-browser's own voice), Space reveals, 1/2/3 rates.
+browser's own voice), Space reveals, 1/2/3 rates. After the reveal a NACHFRAGEN box opens under
+the rating buttons: ask the examiner why, how to say it, or to quiz you on it, by text or ● LIVE;
+the card and its conversation survive a reload until you rate it.
 
 **FREI** — free prompt with the same examiner persona, grounded on a region or a case. Pick
 the case or region and press START: the examiner is briefed on exactly that focus (a running
