@@ -23,6 +23,7 @@ import shutil
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from datetime import date
@@ -86,6 +87,11 @@ def list_dir_json(folder):
         except (OSError, ValueError):
             continue
     return items
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # surface the 302 instead of following it with the token attached
+        return None
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -161,6 +167,8 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.send_json(sorted(os.listdir(folder)) if os.path.isdir(folder) else [])
             if path == '/api/fetch':
                 return self.fetch_image((query.get('url') or [''])[0])
+            if path == '/api/gh':
+                return self.github(query)
             self.send_json({'error': 'not found'}, 404)
         except Exception as error:  # noqa: BLE001 - report anything to the UI
             self.send_json({'error': str(error)}, 500)
@@ -191,6 +199,62 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(data)
         except Exception as error:  # noqa: BLE001
             self.send_json({'error': str(error)}, 502)
+
+    def github(self, query):
+        """Read-only proxy to the GitHub API for the FMH case-matrix attachments (private repo, token
+        from the browser's settings in the X-Github-Token header; never stored or logged here).
+        ?path=/releases/...  -> JSON passthrough          ?asset=<id> -> the asset's bytes"""
+        token = self.headers.get('X-Github-Token', '').strip()
+        repo = (query.get('repo') or [''])[0]
+        if not token or not re.match(r'^[\w.-]+/[\w.-]+$', repo):
+            return self.send_json({'error': 'token or repo missing'}, 400)
+        headers = {'Authorization': f'Bearer {token}', 'User-Agent': 'FMH-DRILL', 'X-GitHub-Api-Version': '2022-11-28'}
+        asset = (query.get('asset') or [''])[0]
+        api_path = (query.get('path') or [''])[0]
+        try:
+            if asset:
+                if not asset.isdigit():
+                    return self.send_json({'error': 'bad asset id'}, 400)
+                req = urllib.request.Request(f'https://api.github.com/repos/{repo}/releases/assets/{asset}', headers={**headers, 'Accept': 'application/octet-stream'})
+                opener = urllib.request.build_opener(NoRedirect)
+                location = None
+                try:
+                    with opener.open(req, timeout=30) as resp:  # GitHub answers 302 to a signed URL; some setups stream directly
+                        data = resp.read(MAX_FILE)
+                        ctype = resp.headers.get('Content-Type', 'application/octet-stream')
+                except urllib.error.HTTPError as error:
+                    if error.code in (301, 302, 303, 307, 308):
+                        location = error.headers.get('Location')
+                    else:
+                        raise
+                if location:  # the signed URL must be fetched WITHOUT the token
+                    with urllib.request.urlopen(urllib.request.Request(location, headers={'User-Agent': 'FMH-DRILL'}), timeout=120) as resp:
+                        data = resp.read(MAX_FILE)
+                        ctype = resp.headers.get('Content-Type', 'application/octet-stream')
+                self.send_response(200)
+                self.send_header('Content-Type', ctype)
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(data)
+                return None
+            if not api_path.startswith('/') or '..' in api_path:
+                return self.send_json({'error': 'bad path'}, 400)
+            req = urllib.request.Request(f'https://api.github.com/repos/{repo}{api_path}', headers={**headers, 'Accept': 'application/vnd.github+json'})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read(MAX_JSON)
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+            return None
+        except urllib.error.HTTPError as error:
+            hint = {401: 'Token ungültig', 403: 'Token hat keinen Zugriff auf dieses Repo', 404: 'Repo oder Release "attachments" nicht gefunden'}.get(error.code, '')
+            return self.send_json({'error': f'GitHub {error.code}{" · " + hint if hint else ""}'}, 502)
+        except Exception as error:  # noqa: BLE001
+            return self.send_json({'error': str(error)}, 502)
 
     # ---- PUT / POST ------------------------------------------------------
     def do_PUT(self):
@@ -272,8 +336,16 @@ def main():
     parser.add_argument('--no-open', action='store_true', help='do not open the browser')
     args = parser.parse_args()
     ensure_dirs()
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     url = f'http://127.0.0.1:{args.port}/'
+    try:
+        server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
+    except OSError as error:
+        if getattr(error, 'errno', None) in (48, 98):  # already running (double-click on the desktop icon twice): just open it
+            print(f'FMH DRILL läuft bereits · {url}')
+            if not args.no_open:
+                webbrowser.open(url)
+            return
+        raise
     print(f'FMH DRILL  ·  {url}\nprogress is saved in {DATA}\npress Ctrl+C to stop')
     if not args.no_open:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

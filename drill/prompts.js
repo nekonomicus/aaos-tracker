@@ -91,7 +91,14 @@
 
   function groundingBlock(grounding) {
     if (!grounding) return '';
-    return `\n\nREFERENZMATERIAL (Präsentationen und Unterlagen des Kandidaten; Fakten, Zahlen, Klassifikationen und Vorgehen daraus benutzen, mit gesichertem Lehrbuchwissen ergänzen: Debrunner, AO, Miller, Hefti, Hoppenfeld):\n<<<\n${grounding}\n>>>`;
+    return `\n\nQUELLEN, in dieser Rangfolge:
+1. UNTERLAGEN DES KANDIDATEN (Auszüge unten, je mit [Quelle: Datei · Abschnitt]): seine FMH-Präsentationen, die abgelegten PDFs und Dokumente, seine AAOS-Notizen. Sie sind der Massstab für Terminologie, Klassifikationen, Zahlen und Vorgehen. Was in den Auszügen steht, hat Vorrang vor allgemeinem Wissen; darauf prüfen und darauf bewerten.
+2. Gesichertes Lehrbuch- und Leitlinienwissen (AO Surgery Reference, Debrunner, Miller, Hefti, Hoppenfeld, aktuelle Guidelines) nur dort, wo die Auszüge schweigen.
+3. Widersprechen Auszüge der gesicherten aktuellen Evidenz, gilt die Evidenz; den Widerspruch beim Namen nennen statt ihn stillschweigend zu übergehen.
+Keine Fakten erfinden. Zahlen nur, wenn sie in den Auszügen stehen oder gesichert sind.
+<<<
+${grounding}
+>>>`;
   }
 
   function memoryBlock(memory) {
@@ -190,12 +197,12 @@ Antworte als JSON: {"reaktion": "<leer oder max. 1 Satz; falls der Kandidat Befu
     properties: { reaktion: { type: 'string' }, frage: { type: 'string' } },
   };
 
-  function feedbackPrompt(settings, caseItem, dossier, transcript, metrics, previousTips) {
+  function feedbackPrompt(settings, caseItem, dossier, transcript, metrics, previousTips, grounding) {
     return `Die Fallbesprechung ist beendet. Bewerte den Kandidaten jetzt als Prüfungsexperte nach dem offiziellen Schema.
 
 ${GRADE_ANCHORS}
 ${STRICTNESS[settings.strictness] || STRICTNESS.hart}
-Massgeblich ist nicht maximale Detailtiefe, sondern: Struktur in der erwarteten Reihenfolge, Vollständigkeit der Kernpunkte, korrekte Klassifikation und Terminologie, Zahlen und Grenzwerte, begründete Entscheidungen, Sicherheit. Lösung im Dossier und Referenzmaterial sind der Massstab.
+Massgeblich ist nicht maximale Detailtiefe, sondern: Struktur in der erwarteten Reihenfolge, Vollständigkeit der Kernpunkte, korrekte Klassifikation und Terminologie, Zahlen und Grenzwerte, begründete Entscheidungen, Sicherheit. Lösung im Dossier und die Auszüge aus den Unterlagen des Kandidaten sind der Massstab; wo seine Unterlagen präziser sind als das Dossier, gelten die Unterlagen.
 
 Gib zurück:
 - "noten": je Station 1–6 (ganze Zahlen), plus "struktur" (1–6: systematisch, in der erwarteten Reihenfolge, ohne Geschwafel?).
@@ -205,6 +212,8 @@ Gib zurück:
 - "musterantwort": pro Station das Gerüst einer 6er-Antwort in Telegrammstil, max. 80 Wörter, in der erwarteten Reihenfolge.
 - "merksaetze": genau 3 Sätze zum Auswendiglernen, jeder mit einer harten Tatsache (Klassifikation, Zahl, Regel), abgeleitet aus den Lücken.
 - "drills": 3–5 Abfrage-Items aus den Lücken dieses Kandidaten: "typ" ∈ ${JSON.stringify(TYPES)}, "frage" (Prüferfrage), "antwort" (Musterantwort ≤ 50 Wörter), "thema".
+- "quellen": die Auszüge aus den Unterlagen, auf die du dich für Bewertung und Musterantwort gestützt hast, als Liste "Datei · Abschnitt" exakt wie in den [Quelle: …]-Marken (leer, wenn keine Auszüge vorlagen).
+- "pruefpunkte": 3–6 harte Tatsachenbehauptungen aus Musterantwort, Merksätzen und "fehlend" (Grenzwert, Klassifikationstyp, Indikationskriterium, Komplikationsrate), je ein Satz mit Zahl oder Typ, so formuliert, dass sie sich gegen die Literatur prüfen lassen; zuerst die, die aus den Unterlagen stammen.
 - "methodik" (kurz, zweitrangig gegenüber dem Fachinhalt): "struktur" = ein Satz, wie geordnet und direkt die Antworten kamen (Rahmen zuerst? Reihenfolge eingehalten? Umwege, Wiederholungen, Rückfragen statt Antworten?); "tiefe" = ein Satz: zu oberflächlich, passend oder detailverliebt, und wo genau; "laenge" = ein Satz zur Antwortlänge anhand der Messwerte (Richtwert gesprochen: Eröffnungsantwort 60–120 Wörter, Nachfrage 20–60 Wörter; mündlich zählt Dichte, nicht Menge); "tipp" = genau EINE übertragbare Regel für die Methodik des nächsten Falls, max. 20 Wörter, konkret und wiederholbar (z. B. "Jede Station mit dem Rahmen in einem Satz eröffnen, dann drei Punkte, dann die Entscheidung."), nicht fallspezifisch; "frueherer_tipp" = ein Satz, ob der zuletzt gegebene Methodik-Tipp diesmal umgesetzt wurde (leer, wenn keiner vorlag). Wiederhole keinen früheren Tipp, wenn er umgesetzt wurde; wenn nicht umgesetzt, gib denselben Tipp nochmals, schärfer formuliert.
 ${langLine(settings)}
 
@@ -214,12 +223,12 @@ FRÜHERE METHODIK-TIPPS (neueste zuletzt): ${previousTips && previousTips.length
 FALL: ${caseItem.title}
 DOSSIER: ${JSON.stringify(dossier)}
 TRANSKRIPT:
-${transcript}`;
+${transcript}${groundingBlock(grounding)}`;
   }
 
   const FEEDBACK_SCHEMA = {
     type: 'object', additionalProperties: false,
-    required: ['noten', 'note', 'fehlend', 'gut', 'musterantwort', 'merksaetze', 'drills', 'methodik'],
+    required: ['noten', 'note', 'fehlend', 'gut', 'musterantwort', 'merksaetze', 'drills', 'methodik', 'quellen', 'pruefpunkte'],
     properties: {
       methodik: {
         type: 'object', additionalProperties: false, required: ['struktur', 'tiefe', 'laenge', 'tipp', 'frueherer_tipp'],
@@ -241,6 +250,8 @@ ${transcript}`;
         properties: { station1: { type: 'string' }, station2: { type: 'string' }, station3: { type: 'string' }, station4: { type: 'string' }, station5: { type: 'string' } },
       },
       merksaetze: { type: 'array', items: { type: 'string' } },
+      quellen: { type: 'array', items: { type: 'string' } },
+      pruefpunkte: { type: 'array', items: { type: 'string' } },
       drills: {
         type: 'array',
         items: {
@@ -261,8 +272,8 @@ Gib zurück: "score" (0/1/2), "urteil" (ein Satz, max. 15 Wörter, sachlich, was
 ${langLine(settings)}`;
   }
 
-  function gradePrompt(item, answer) {
-    return `FRAGE: ${item.q}\nMUSTERANTWORT: ${item.a}\nANTWORT DES KANDIDATEN: ${answer || '(keine Antwort)'}`;
+  function gradePrompt(item, answer, grounding) {
+    return `FRAGE: ${item.q}\nMUSTERANTWORT: ${item.a}\nANTWORT DES KANDIDATEN: ${answer || '(keine Antwort)'}${grounding ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN ZUM THEMA (Massstab, falls sie präziser sind als die Musterantwort; eine Antwort, die den Unterlagen entspricht, ist richtig):\n<<<\n${grounding}\n>>>` : ''}`;
   }
 
   const GRADE_SCHEMA = {
@@ -386,6 +397,23 @@ ${langLine(settings)}${memoryBlock(memory)}${groundingBlock(grounding)}`;
     return `Suche im Web 3–5 frei zugängliche Seiten, auf denen ein typisches, echtes Röntgen-, CT- oder MRI-Bild zu diesem Prüfungsthema zu sehen ist: ${caseItem.title} (${caseItem.region}). Bevorzuge konkrete Fallseiten (Radiopaedia-Fälle mit passender Diagnose, AO Surgery Reference, Orthobullets, Wikimedia Commons, Fachartikel mit offenen Abbildungen). Keine Lehrbuch-Schemata, keine Shops. Für jede Seite: Titel, URL, und in max. 12 Wörtern, was dort zu sehen ist (Modalität, Ebene, Befund). Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
   }
 
+  // ------------------------------------------------------------- RETRIEVAL
+  function caseTermsPrompt(caseItem) {
+    return `Für die Volltextsuche in den Lernunterlagen eines Kandidaten (deutsche und englische Präsentationen, PDFs, Notizen) zum Prüfungsthema "${caseItem.title}" (${caseItem.region}): nenne 15–25 Suchbegriffe, mit denen die relevanten Passagen gefunden werden: deutsche und englische Fachbegriffe, Eponyme, Klassifikationen, Abkürzungen, Implantate, Verfahren, Zugänge, typische Begleitverletzungen und Komplikationen. Einzelne Wörter oder kurze Wortgruppen, keine Sätze. Antworte als JSON {"terms": ["...", "..."]}.`;
+  }
+  const TERMS_SCHEMA = { type: 'object', additionalProperties: false, required: ['terms'], properties: { terms: { type: 'array', items: { type: 'string' } } } };
+
+  // ------------------------------------------------------------ FACT CHECK
+  const S_TIER = 'Cochrane Reviews, NEJM, The Lancet, JAMA, BMJ, JBJS (Am/Br), The Bone & Joint Journal, Clinical Orthopaedics and Related Research, Journal of Orthopaedic Trauma, Injury, Spine, Foot & Ankle International, Journal of Shoulder and Elbow Surgery, Arthroscopy, Knee Surgery Sports Traumatology Arthroscopy, AO Surgery Reference, nationale Leitlinien (AWMF, NICE, AAOS Clinical Practice Guidelines), Standardlehrbücher (Rockwood & Green, Campbell, Miller)';
+  function factCheckPrompt(claims, context) {
+    return `Faktencheck in Echtzeit für die Vorbereitung auf die Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics). Prüfe jede der folgenden Behauptungen mit der Websuche gegen hochrangige, begutachtete Quellen: ${S_TIER}. Keine Foren, keine Blogs, keine Wikis, keine Patienteninformationsseiten, keine Shops; Orthobullets und Radiopaedia höchstens als Wegweiser, nie als Beleg.
+Pro Behauptung: "status" = "bestätigt" (eine S-Tier-Quelle stützt sie), "korrigiert" (die Quelle sagt etwas anderes; dann "korrektur" = der richtige Sachverhalt in einem Satz mit Zahl oder Typ) oder "unklar" (keine S-Tier-Quelle gefunden oder Evidenz uneinheitlich; dann "korrektur" = was die beste gefundene Quelle sagt, oder leer). "quelle" = Zeitschrift bzw. Herausgeber, Jahr, Kurztitel; "url" = Link zur Quelle (PubMed oder Verlag), leer, wenn keine. Erfinde keine Quellen: kein Link, den du nicht gesehen hast.
+Antworte ausschliesslich als JSON: {"befunde":[{"aussage":"","status":"","korrektur":"","quelle":"","url":""}]} in der Reihenfolge der Behauptungen.
+KONTEXT: ${context}
+BEHAUPTUNGEN:
+${claims.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
+  }
+
   // ------------------------------------------------------------------ DISCUSS
   function discussSystem(settings, context) {
     return `Du bist der Prüfungsexperte, der soeben bewertet hat, jetzt im Gespräch nach der Prüfung. Der Kandidat darf nachfragen: warum etwas falsch oder unvollständig war, wie die Musterantwort begründet ist, wie er es beim nächsten Mal formulieren soll, Hintergrund zu Klassifikation, Zahlen, Technik.
@@ -402,6 +430,6 @@ ${context}`;
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,
     extractSystem, extractPrompt, generateSystem, generatePrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
-    commonsQueryPrompt, COMMONS_SCHEMA, researchPrompt, freeSystem, discussSystem,
+    commonsQueryPrompt, COMMONS_SCHEMA, researchPrompt, freeSystem, discussSystem, caseTermsPrompt, TERMS_SCHEMA, factCheckPrompt,
   };
 })();

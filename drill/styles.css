@@ -244,3 +244,13 @@ details.plain summary:hover { color: var(--ink); }
 .discuss .chat.small .msg .body { font-size: 14px; white-space: pre-wrap; }
 .discuss .chat.small .msg.candidate .body { color: var(--muted); }
 .discuss summary { color: var(--signal); }
+
+/* fact check and sources */
+.fact { margin: 16px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.fact ul.clean li { margin: 8px 0; padding-left: 22px; position: relative; line-height: 1.45; }
+.fact .fact-icon { position: absolute; left: 0; top: 0; font-family: var(--mono); }
+.fact .fact-bestätigt .fact-icon { color: var(--ok); }
+.fact .fact-korrigiert .fact-icon { color: var(--warn); }
+.fact .fact-korrigiert strong { color: var(--warn); }
+.fact .fact-unklar .fact-icon { color: var(--muted); }
+.fact a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

@@ -29,6 +29,7 @@
   const DEFAULT_SETTINGS = {
     apiKey: '', model: 'auto', resolvedModel: '', effort: 'ausgewogen', transcribeModel: 'gpt-4o-transcribe', ttsModel: 'gpt-4o-mini-tts', ttsVoice: 'onyx',
     examinerVoice: false, lang: 'de', strictness: 'hart', followups: 1, custom: '', dailyGoal: 30, readAloud: false, quizCount: 20, images: true, webImages: true, googleKey: '', googleCx: '',
+    factCheck: true, githubToken: '', fmhRepo: 'nekonomicus/fmh-oral-files',
   };
   let state = { version: 2, settings: { ...DEFAULT_SETTINGS }, items: {}, caseLog: {}, daily: {}, lastFilters: {} };
   let customBank = [];
@@ -379,27 +380,124 @@
     return added;
   }
 
-  // grounding and memory
-  async function groundingForCase(caseItem, budget = 14000) {
-    const parts = [];
-    for (const entry of CORPUS[caseItem.id] || []) parts.push(`[${entry.name}]\n${entry.text}`);
-    for (const m of materialsIndex.filter((x) => (x.caseIds || []).includes(caseItem.id))) {
-      const full = await Store.getMaterial(m.id);
-      if (full?.text) parts.push(`[${m.name}]\n${full.text.slice(0, 6000)}`);
+  // ------------------------------------------------------------- retrieval
+  // Every source the examiner may use is split into short passages and indexed in the
+  // browser: the FMH presentations (CORPUS), everything dumped into MATERIAL (PDFs, PPTX,
+  // DOCX, TXT, the AAOS tracker export, synced presentations). Each model call retrieves
+  // the passages that match its question of the moment, so the model goes back into the
+  // sources at every step instead of relying on the case tagging alone.
+  const STOP = new Set('der die das und oder ein eine einer eines einem einen ist sind war wird werden mit bei von vom zum zur für auf aus nach über unter durch den dem des als auch nicht nur noch dann wenn wie was wer wo dass sich ich sie er es wir ihr man kann können soll sollte muss müssen hat haben the and for with from this that are was were has have into onto which what when where patient patienten jahre jahr alt alte alter rechts links beidseits sowie bzw ggf etc'.split(' '));
+  const Index = {
+    chunks: [], df: new Map(), avg: 1, built: null, materialText: new Map(),
+    tokens(text) {
+      const out = [];
+      for (const raw of norm(text).split(' ')) {
+        if (raw.length < 3 || STOP.has(raw) || /^\d+$/.test(raw)) continue;
+        // crude phonetic normalisation so German and English medical terms meet: Fraktur/fracture,
+        // Klassifikation/classification, Myelopathie/myelopathy; then a 7-letter stem
+        const w = raw.replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss').replace(/ph/g, 'f').replace(/[kz]/g, 'c').replace(/y/g, 'i').replace(/th/g, 't');
+        out.push(w.length > 7 ? w.slice(0, 7) : w);
+      }
+      return out;
+    },
+    split(text, size = 900) {
+      const paras = String(text || '').split(/\n{2,}|\n(?=[A-ZÄÖÜ0-9][^\n]{0,60}\n)/).map((s) => s.trim()).filter(Boolean);
+      const out = []; let cur = '';
+      for (const para of paras) {
+        if (cur && cur.length + para.length > size) { out.push(cur); cur = para.length > size * 1.6 ? '' : para; if (!cur) for (let i = 0; i < para.length; i += size) out.push(para.slice(i, i + size)); continue; }
+        cur = cur ? `${cur}\n${para}` : para;
+      }
+      if (cur) out.push(cur);
+      return out;
+    },
+    add(src, name, text, meta = {}) {
+      for (const [i, t] of this.split(text).entries()) {
+        const toks = this.tokens(t); const tf = new Map();
+        for (const tok of toks) tf.set(tok, (tf.get(tok) || 0) + 1);
+        this.chunks.push({ src, name, i, text: t, tf, len: toks.length, ...meta });
+      }
+    },
+    async build() {
+      this.chunks = []; this.df = new Map();
+      for (const [cid, entries] of Object.entries(CORPUS)) for (const e of entries) this.add(`corpus:${cid}:${e.name}`, e.name, e.text, { caseId: cid, kind: 'präsentation' });
+      await Promise.all(materialsIndex.map(async (m) => {
+        if (!this.materialText.has(m.id)) { const full = await Store.getMaterial(m.id).catch(() => null); this.materialText.set(m.id, full?.text || ''); }
+        this.add(`material:${m.id}`, m.name, this.materialText.get(m.id), { materialId: m.id, caseId: m.caseIds?.[0] || null, kind: m.kind === 'aaos' ? 'aaos' : m.kind === 'fmh' ? 'präsentation' : 'material' });
+      }));
+      for (const c of this.chunks) for (const tok of c.tf.keys()) this.df.set(tok, (this.df.get(tok) || 0) + 1);
+      this.avg = this.chunks.reduce((a, c) => a + c.len, 0) / Math.max(1, this.chunks.length);
+    },
+    ready() { if (!this.built) this.built = this.build(); return this.built; },
+    async rebuild() { this.built = null; return this.ready(); },
+    forget(materialId) { this.materialText.delete(materialId); },
+    async search(query, { k = 8, exclude = null, boost = null } = {}) {
+      await this.ready();
+      const q = this.tokens(query); if (!q.length || !this.chunks.length) return [];
+      const N = this.chunks.length; const qtf = new Map(); for (const t of q) qtf.set(t, (qtf.get(t) || 0) + 1);
+      const scored = [];
+      for (const c of this.chunks) {
+        if (exclude && exclude(c)) continue;
+        let s = 0;
+        for (const [t, qn] of qtf) {
+          const f = c.tf.get(t); if (!f) continue;
+          const idf = Math.log(1 + (N - (this.df.get(t) || 0) + 0.5) / ((this.df.get(t) || 0) + 0.5));
+          s += idf * Math.min(qn, 2) * (f * 2.2) / (f + 1.2 * (0.25 + 0.75 * c.len / this.avg));
+        }
+        if (s > 0) scored.push([boost ? s * boost(c) : s, c]);
+      }
+      scored.sort((a, b) => b[0] - a[0]);
+      return scored.slice(0, k).map(([score, c]) => ({ ...c, score }));
+    },
+  };
+  function sourceLabel(c) { return `${c.name} · Abschnitt ${c.i + 1}`; }
+  function renderChunks(chunks, budget) {
+    const parts = []; let used = 0;
+    for (const c of chunks) {
+      const block = `[Quelle: ${sourceLabel(c)}]\n${c.text}`;
+      if (used + block.length > budget) { if (!parts.length) parts.push(block.slice(0, budget)); break; }
+      parts.push(block); used += block.length + 2;
     }
+    return parts.join('\n\n');
+  }
+  // search terms per case, generated once by the model (German + English, eponyms, classifications) and kept
+  async function caseTerms(caseItem) {
+    const cached = (state.caseTerms || {})[caseItem.id];
+    if (cached?.terms?.length) return cached.terms;
+    let terms = [];
+    if (state.settings.apiKey) {
+      try { const out = await chatJSON({ system: 'Du hilfst bei der Volltextsuche in orthopädischen Lernunterlagen. Antworte nur mit JSON.', messages: [{ role: 'user', content: P.caseTermsPrompt(caseItem) }], schema: P.TERMS_SCHEMA, name: 'suchbegriffe' }); terms = (out.terms || []).map((t) => String(t).trim()).filter(Boolean).slice(0, 30); } catch { terms = []; }
+    }
+    if (terms.length) { (state.caseTerms = state.caseTerms || {})[caseItem.id] = { terms, t: Date.now() }; Store.saveState(); }
+    return terms.length ? terms : norm(caseItem.title).split(' ').filter((w) => w.length > 3);
+  }
+  async function lookup(query, budget = 3500, opts = {}) {
+    const hits = await Index.search(query, { k: opts.k || 6, exclude: opts.exclude, boost: opts.boost });
+    return renderChunks(hits, budget);
+  }
+
+  // grounding and memory
+  async function groundingForCase(caseItem, budget = 16000, extraQuery = '') {
+    const parts = [];
+    const own = (CORPUS[caseItem.id] || []).map((entry) => `[Quelle: ${entry.name} · Präsentation zu diesem Fall]\n${entry.text}`).join('\n\n');
+    const ownBudget = Math.floor(budget * 0.4);
+    if (own) parts.push(own.length > ownBudget ? `${own.slice(0, ownBudget)}\n[gekürzt]` : own);
+    const terms = await caseTerms(caseItem);
+    const query = `${caseItem.title} ${terms.join(' ')} ${extraQuery}`;
+    const retrieved = await lookup(query, budget - parts.join('').length - 1200, { k: 14, exclude: (c) => c.src.startsWith(`corpus:${caseItem.id}:`), boost: (c) => (c.caseId === caseItem.id ? 1.5 : c.kind === 'aaos' ? 1.15 : 1) });
+    if (retrieved) parts.push(retrieved);
     const region = regionOfCase(caseItem);
     const words = norm(caseItem.title).split(' ').filter((w) => w.length > 4);
-    const bankLines = allItems().filter((it) => it.type !== 'bild' && ((it.caseIds || []).includes(caseItem.id) || (it.region === region && words.some((w) => norm(it.topic).includes(w))))).slice(0, 40).map((it) => `F: ${it.q} A: ${it.a}`);
-    if (bankLines.length) parts.push(`[Abfrage-Items zum Thema]\n${bankLines.join('\n')}`);
+    const bankLines = allItems().filter((it) => it.type !== 'bild' && ((it.caseIds || []).includes(caseItem.id) || (it.region === region && words.some((w) => norm(it.topic).includes(w))))).slice(0, 30).map((it) => `F: ${it.q} A: ${it.a}`);
+    if (bankLines.length) parts.push(`[Quelle: Abfrage-Items des Kandidaten zum Thema]\n${bankLines.join('\n')}`);
     const text = parts.join('\n\n');
     return text.length > budget ? `${text.slice(0, budget)}\n[gekürzt]` : text;
   }
-  async function groundingForRegion(region, budget = 14000) {
-    const ids = CASES.filter((c) => (P.CASE_REGION_TO_DRILL[c.region] || []).includes(region)).map((c) => c.id);
-    const parts = [];
-    for (const id of ids) for (const entry of CORPUS[id] || []) parts.push(`[${entry.name}]\n${entry.text}`);
-    const text = parts.join('\n\n');
-    return text.length > budget ? text.slice(0, budget) : text;
+  async function groundingForRegion(region, budget = 14000, topic = '') {
+    const cases = CASES.filter((c) => (P.CASE_REGION_TO_DRILL[c.region] || []).includes(region));
+    const sample = shuffle(cases).slice(0, 12);
+    const query = `${region} ${topic} ${sample.map((c) => c.title).join(' ')}`;
+    const hits = await Index.search(query, { k: 40, boost: (c) => (c.caseId && cases.some((x) => x.id === c.caseId) ? 1.4 : 1) });
+    return renderChunks(shuffle(hits.slice(0, 24)), budget); // rotate the passages so repeated generation sees different material
   }
   function memoryFor(caseItem, region) {
     const caseGaps = caseItem ? (state.caseLog[caseItem.id] || []).flatMap((l) => l.fehlend || []).slice(-8) : [];
@@ -461,7 +559,7 @@
   }
 
   // chat about a verdict or a feedback sheet; messages are kept in `holder.discussion`
-  function discussion(container, contextText, holder, onChange) {
+  function discussion(container, contextText, holder, onChange, sourceQuery = '') {
     holder.discussion = holder.discussion || [];
     container.innerHTML = `<details class="plain discuss" ${holder.discussion.length ? 'open' : ''}><summary>NACHFRAGEN</summary>
       <div class="chat small" id="d-chat"></div>
@@ -477,7 +575,8 @@
       busy = true; ta.value = ''; add('candidate', text); holder.discussion.push({ role: 'user', content: text });
       const body = add('examiner', ''); body.innerHTML = '<span class="spinner"></span>';
       try {
-        const full = await chatStream({ system: P.discussSystem(state.settings, contextText), messages: holder.discussion, onDelta: (t) => { body.textContent = t; } });
+        const passages = await lookup(`${sourceQuery} ${text}`, 4000, { k: 5 }).catch(() => '');
+        const full = await chatStream({ system: P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab; mit [Quelle: …] zitieren):\n<<<\n${passages}\n>>>` : ''), messages: holder.discussion, onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; holder.discussion.push({ role: 'assistant', content: full });
         if (onChange) onChange();
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; holder.discussion.pop(); }
@@ -495,9 +594,10 @@
   }
 
   // web research for a case: pages that show the typical imaging (OpenAI web_search tool)
-  async function researchLinks(caseItem) {
-    const body = { model: activeModel(), tools: [{ type: 'web_search' }], input: P.researchPrompt(caseItem) };
-    if (isReasoningModel(activeModel())) body.reasoning = { effort: 'low' };
+  // one web-search call through the Responses API; returns the JSON object in the answer plus the citations
+  async function webSearchJSON(input, effort = 'low') {
+    const body = { model: activeModel(), tools: [{ type: 'web_search' }], input };
+    if (isReasoningModel(activeModel())) body.reasoning = { effort };
     let res;
     try { res = await openaiFetch('/responses', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
     catch (error) {
@@ -507,12 +607,31 @@
     const data = await res.json();
     const text = (data.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).filter((c) => c.type === 'output_text').map((c) => c.text).join('\n') || data.output_text || '';
     const match = text.match(/\{[\s\S]*\}/);
-    let links = [];
-    try { links = match ? JSON.parse(match[0]).links || [] : []; } catch { links = []; }
-    if (!links.length) {
-      const cites = (data.output || []).flatMap((o) => o.content || []).flatMap((c) => c.annotations || []).filter((a) => a.type === 'url_citation');
-      links = cites.map((a) => ({ title: a.title || a.url, url: a.url, why: '' }));
-    }
+    let json = null;
+    try { json = match ? JSON.parse(match[0]) : null; } catch { json = null; }
+    const cites = (data.output || []).flatMap((o) => o.content || []).flatMap((c) => c.annotations || []).filter((a) => a.type === 'url_citation').map((a) => ({ title: a.title || a.url, url: a.url }));
+    return { json, cites, text };
+  }
+  // real-time fact check of hard claims against peer-reviewed sources; the last instance after the candidate's own sources
+  async function factCheck(claims, context) {
+    const list = (claims || []).map((c) => String(c).trim()).filter(Boolean).slice(0, 6);
+    if (!list.length) return [];
+    const { json, cites } = await webSearchJSON(P.factCheckPrompt(list, context), 'medium');
+    const befunde = Array.isArray(json?.befunde) ? json.befunde : [];
+    return befunde.map((b, i) => ({
+      aussage: String(b.aussage || list[i] || ''), status: /korrig/i.test(b.status) ? 'korrigiert' : /best/i.test(b.status) ? 'bestätigt' : 'unklar',
+      korrektur: String(b.korrektur || ''), quelle: String(b.quelle || ''), url: /^https?:/.test(b.url || '') ? b.url : (cites[i]?.url || ''),
+    })).filter((b) => b.aussage);
+  }
+  function factBlock(befunde, title = 'FAKTENCHECK · S-TIER-LITERATUR') {
+    if (!befunde) return '';
+    const icon = { bestätigt: '✓', korrigiert: '✗', unklar: '?' };
+    return `<div class="fact"><span class="label muted">${esc(title)}</span>${befunde.length ? `<ul class="clean">${befunde.map((b) => `<li class="fact-${b.status}"><span class="fact-icon">${icon[b.status]}</span> ${esc(b.aussage)}${b.korrektur && b.status !== 'bestätigt' ? `<br><strong>${esc(b.korrektur)}</strong>` : ''}${b.quelle || b.url ? `<br><span class="meta">${b.url ? `<a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.quelle || b.url)}</a>` : esc(b.quelle)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="meta">Keine prüfbaren Behauptungen.</p>'}</div>`;
+  }
+  async function researchLinks(caseItem) {
+    const { json, cites } = await webSearchJSON(P.researchPrompt(caseItem));
+    let links = Array.isArray(json?.links) ? json.links : [];
+    if (!links.length) links = cites.map((a) => ({ title: a.title, url: a.url, why: '' }));
     const seen = new Set();
     return links.filter((l) => l.url && /^https?:/.test(l.url) && !seen.has(l.url) && seen.add(l.url)).slice(0, 6);
   }
@@ -778,9 +897,13 @@
       const thinking = document.createElement('div'); thinking.className = 'thinking'; thinking.innerHTML = '<span class="spinner"></span>'; transcriptEl.appendChild(thinking);
       try {
         const followupNo = onlyQuestion ? Math.min(session.followup + 1, followupsTotal) : session.followup;
-        const control = onlyQuestion
+        let control = onlyQuestion
           ? `[STATION ${i + 1}/5 · ${P.STATIONS[i].label}] Der Kandidat hat eine Rückfrage gestellt. Beantworte sie knapp aus dem Dossier (Feld "reaktion") und wiederhole in "frage" die noch offene Frage in einem Satz.`
           : P.turnPrompt(i, followupNo, followupsTotal, !isLast);
+        // go back into the sources for this very answer: passages matching the station, the answer and the last question
+        const lastQ = [...session.transcript].reverse().find((m) => m.role === 'examiner')?.text || '';
+        const passages = await lookup(`${caseItem.title} ${P.STATIONS[i].label} ${lastQ} ${text}`, 3500, { k: 4 }).catch(() => '');
+        if (passages) control += `\n\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN zu dieser Antwort (nur für dich: daran die Antwort messen und die nächste Frage danach richten; nichts davon verraten):\n<<<\n${passages}\n>>>`;
         session.messages.push({ role: 'user', content: control });
         const turn = await chatJSON({ system: session.system, messages: session.messages, schema: P.TURN_SCHEMA, name: 'pruefer_zug' });
         session.messages.pop();
@@ -809,7 +932,9 @@
       const metrics = answerMetrics(session);
       const previousTips = (state.methodLog || []).slice(-4).map((m) => m.tipp);
       try {
-        const fb = await chatJSON({ system: 'Du bist Prüfungsexperte und bewertest nach dem offiziellen Schema. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.feedbackPrompt(state.settings, caseItem, session.dossier, transcript, metrics, previousTips) }], schema: P.FEEDBACK_SCHEMA, name: 'feedback', heavy: true });
+        const examinerQs = session.transcript.filter((m) => m.role === 'examiner').map((m) => m.text).join(' ');
+        const grounding = await groundingForCase(caseItem, 16000, `${session.dossier.loesung.diagnose} ${session.dossier.loesung.klassifikation} ${examinerQs}`.slice(0, 1500));
+        const fb = await chatJSON({ system: 'Du bist Prüfungsexperte und bewertest nach dem offiziellen Schema. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.feedbackPrompt(state.settings, caseItem, session.dossier, transcript, metrics, previousTips, grounding) }], schema: P.FEEDBACK_SCHEMA, name: 'feedback', heavy: true });
         thinking.remove();
         session.feedback = fb; session.status = 'beendet'; session.endedAt = Date.now(); session.grade = fb.note;
         (state.caseLog[caseId] = state.caseLog[caseId] || []).push({ t: Date.now(), grade: fb.note, noten: fb.noten, sessionId: session.id, variant: session.dossier.titel, fehlend: (fb.fehlend || []).slice(0, 6) });
@@ -839,11 +964,19 @@
         <h3>Musterantwort-Gerüst</h3>
         <div class="muster">${P.STATIONS.map((s, i) => `<p><span class="label">${i + 1} · ${esc(s.label)}</span>${esc(fb.musterantwort[`station${i + 1}`])}</p>`).join('')}</div>
         <p class="meta">${added} NEUE ABFRAGE-ITEMS AUS DEINEN LÜCKEN</p>
+        ${fb.quellen?.length ? `<p class="meta">QUELLEN · ${fb.quellen.map((q) => esc(q)).join(' · ')}</p>` : '<p class="meta">QUELLEN · keine passenden Auszüge in deinen Unterlagen gefunden</p>'}
+        <div id="fb-fact">${session.factcheck ? factBlock(session.factcheck) : ''}</div>
         <div id="fb-discuss" style="margin:18px 0"></div>
         <div class="row" style="margin-top:16px"><button class="btn primary" id="fb-again">GLEICHER FALL, NEUE VARIANTE</button><button class="btn" id="fb-next">NÄCHSTER OFFENER FALL</button><button class="btn ghost" id="fb-matrix">MATRIX</button></div>`;
       transcriptEl.appendChild(div); div.scrollIntoView({ behavior: 'smooth' });
       const transcript = session.transcript.filter((m) => m.role !== 'system').map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n');
-      discussion($('#fb-discuss'), `FALL: ${caseItem.title}\nLÖSUNG: ${JSON.stringify(session.dossier.loesung)}\nBILDBEFUND: ${session.dossier.bild_befund || '-'}\nTRANSKRIPT:\n${transcript}\nBEWERTUNG: ${JSON.stringify(fb)}`, session, () => Store.putSession(session));
+      discussion($('#fb-discuss'), `FALL: ${caseItem.title}\nLÖSUNG: ${JSON.stringify(session.dossier.loesung)}\nBILDBEFUND: ${session.dossier.bild_befund || '-'}\nTRANSKRIPT:\n${transcript}\nBEWERTUNG: ${JSON.stringify(fb)}${session.factcheck ? `\nFAKTENCHECK: ${JSON.stringify(session.factcheck)}` : ''}`, session, () => Store.putSession(session), caseItem.title);
+      if (!session.factcheck && state.settings.factCheck !== false && fb.pruefpunkte?.length) {
+        const holder = $('#fb-fact'); holder.innerHTML = '<div class="fact"><span class="label muted">FAKTENCHECK · S-TIER-LITERATUR</span><div class="thinking"><span class="spinner"></span> &nbsp;PRÜFE GEGEN DIE LITERATUR</div></div>';
+        factCheck(fb.pruefpunkte, `Prüfungsfall ${caseItem.title}; Diagnose ${session.dossier.loesung.diagnose}; ${session.dossier.loesung.klassifikation}. Behauptungen stammen aus der Musterantwort des Prüfers und aus den Unterlagen des Kandidaten.`)
+          .then((befunde) => { session.factcheck = befunde; Store.putSession(session); if (holder.isConnected) holder.innerHTML = factBlock(befunde); })
+          .catch((error) => { if (holder.isConnected) holder.innerHTML = `<div class="fact"><span class="label muted">FAKTENCHECK</span><p class="meta">nicht möglich · ${esc(error.message)}</p></div>`; });
+      }
       $('#fb-again').onclick = () => { navigate(); };
       $('#fb-next').onclick = () => { const c = CASES.find((x) => caseSummary(x.id).runs === 0) || CASES[0]; location.hash = `#exam/${c.id}`; if (c.id === caseId) navigate(); };
       $('#fb-matrix').onclick = () => { location.hash = '#exam'; };
@@ -887,7 +1020,7 @@
     if (!requireKey()) return 0;
     const region = f.regions[0] || P.REGIONS[Math.floor(Math.random() * P.REGIONS.length)];
     const existing = filterItems({ regions: [region], search: f.search }, { noImages: true }).map((it) => it.q).slice(-120);
-    const grounding = await groundingForRegion(region, 12000);
+    const grounding = await groundingForRegion(region, 12000, f.search || '');
     const out = await chatJSON({ system: P.generateSystem(), messages: [{ role: 'user', content: P.generatePrompt(region, f.search, n, existing, grounding) }], schema: P.ITEMS_SCHEMA, name: 'items', heavy: true });
     return addItems(out.items || [], `generiert ${region}`, []);
   }
@@ -963,7 +1096,7 @@
           result = await chatJSON({ system: P.imageGradeSystem(state.settings), messages: [{ role: 'user', content: P.imageGradePrompt(item, answer) }], schema: P.IMAGE_GRADE_SCHEMA, name: 'bildkorrektur', images: [url] });
           modelAnswer = result.musterantwort || item.a;
         } else if (!answer) result = { score: 0, urteil: 'Keine Antwort.', fehlend: [] };
-        else result = await chatJSON({ system: P.gradeSystem(state.settings), messages: [{ role: 'user', content: P.gradePrompt(item, answer) }], schema: P.GRADE_SCHEMA, name: 'korrektur' });
+        else { const passages = await lookup(`${item.topic || ''} ${item.q} ${item.a}`, 2500, { k: 3 }).catch(() => ''); result = await chatJSON({ system: P.gradeSystem(state.settings), messages: [{ role: 'user', content: P.gradePrompt(item, answer, passages) }], schema: P.GRADE_SCHEMA, name: 'korrektur' }); }
       } catch (error) { $('#verdict').innerHTML = `<p class="warn">${esc(error.message)}</p>`; $('#btn-send').disabled = false; $('#btn-skip').disabled = false; busy = false; return; }
       const score = Math.max(0, Math.min(2, Number(result.score) || 0));
       sess.results.push(score); schedule(item.id, score); bump('quiz'); if (score === 2) bump('quizRight');
@@ -981,12 +1114,24 @@
           ${v.answer ? `<div class="judge" style="margin:0 0 10px">DU: ${esc(v.answer)}</div>` : ''}
           <div class="model">${esc(v.modelAnswer)}</div>
           <div class="judge">${esc(v.urteil)}${v.fehlend?.length ? ` · fehlt: ${esc(v.fehlend.join(', '))}` : ''}</div>
-          <div class="row" style="margin-top:14px"><button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button><button class="btn ghost small" id="btn-fix" title="Musterantwort falsch oder unpassend">MELDEN</button></div>
+          <div class="row" style="margin-top:14px"><button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button><button class="btn ghost small" id="btn-fact" title="Musterantwort gegen die Literatur prüfen">FAKTENCHECK</button><button class="btn ghost small" id="btn-fix" title="Musterantwort falsch oder unpassend">MELDEN</button></div>
+          <div id="q-fact">${v.factcheck ? factBlock(v.factcheck) : ''}</div>
           <div id="q-discuss" style="margin-top:14px"></div>
         </div>`;
       $('#btn-next').onclick = next; $('#btn-next').focus();
+      $('#btn-fact').onclick = async () => {
+        if (!requireKey()) return; const b = $('#btn-fact'); b.disabled = true; const holder = $('#q-fact');
+        holder.innerHTML = '<div class="fact"><div class="thinking"><span class="spinner"></span> &nbsp;PRÜFE GEGEN DIE LITERATUR</div></div>';
+        try {
+          const befunde = await factCheck([`${item.q} → ${v.modelAnswer}`], `Abfrage-Item (${item.region}${item.topic ? ` · ${item.topic}` : ''}) aus den Unterlagen des Kandidaten.`);
+          v.factcheck = befunde; save(); holder.innerHTML = factBlock(befunde);
+          const fix = befunde.find((x) => x.status === 'korrigiert' && x.korrektur);
+          if (fix && item.id.startsWith('c-')) { const btn = document.createElement('button'); btn.className = 'btn small'; btn.textContent = 'MUSTERANTWORT KORRIGIEREN'; btn.onclick = async () => { const it = customBank.find((x) => x.id === item.id); if (it) { it.a = fix.korrektur; it.corrected = fix.quelle || fix.url || 'Faktencheck'; await Store.saveBank(); toast('Musterantwort ersetzt'); btn.remove(); } }; holder.querySelector('.fact').appendChild(btn); }
+        } catch (error) { holder.innerHTML = `<p class="warn">${esc(error.message)}</p>`; }
+        b.disabled = false;
+      };
       $('#btn-fix').onclick = () => { const s = stats(item.id); s.flag = !s.flag; state.items[item.id] = s; Store.saveState(); toast(s.flag ? 'Markiert · unter STATUS' : 'Markierung entfernt'); };
-      discussion($('#q-discuss'), `FRAGE: ${item.q}\nMUSTERANTWORT: ${v.modelAnswer}\nANTWORT DES KANDIDATEN: ${v.answer || '(keine)'}\nBEWERTUNG: ${score}/2 · ${v.urteil}${v.fehlend?.length ? ` · fehlt: ${v.fehlend.join(', ')}` : ''}`, v, save);
+      discussion($('#q-discuss'), `FRAGE: ${item.q}\nMUSTERANTWORT: ${v.modelAnswer}\nANTWORT DES KANDIDATEN: ${v.answer || '(keine)'}\nBEWERTUNG: ${score}/2 · ${v.urteil}${v.fehlend?.length ? ` · fehlt: ${v.fehlend.join(', ')}` : ''}`, v, save, `${item.topic || ''} ${item.q}`);
       if (state.settings.readAloud) readAloud(v.modelAnswer);
     }
     function onKey(e) { if (sess.verdict && e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') { e.preventDefault(); next(); } }
@@ -1098,8 +1243,10 @@
       try {
         const region = $('#free-region').value; const cid = $('#free-case').value;
         let grounding = '';
-        if (cid) grounding = await groundingForCase(caseById(cid), 12000);
-        else if (region) grounding = await groundingForRegion(region, 12000);
+        if (cid) grounding = await groundingForCase(caseById(cid), 12000, text);
+        else if (region) grounding = await groundingForRegion(region, 9000, text);
+        const passages = await lookup(text, cid || region ? 4000 : 9000, { k: 8 }).catch(() => '');
+        if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
         const full = await chatStream({ system: P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null)), messages, onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; messages.push({ role: 'assistant', content: full });
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
@@ -1234,12 +1381,14 @@
     const builtin = Object.entries(CORPUS).map(([cid, entries]) => ({ cid, entries }));
     view.innerHTML = `
       ${hero('MATERIAL', 'Material')}
-      <div class="drop" id="drop">PDF · PPTX · DOCX · TXT HIER ABLEGEN<input type="file" id="file" multiple accept=".pdf,.pptx,.docx,.txt,.md" hidden></div>
+      <div class="drop" id="drop">PDF · PPTX · DOCX · TXT · AAOS-TRACKER-EXPORT (JSON) HIER ABLEGEN<input type="file" id="file" multiple accept=".pdf,.pptx,.docx,.txt,.md,.json" hidden></div>
+      <div class="row" style="margin-top:10px"><button class="btn small" id="btn-sync" ${serverOk ? '' : 'disabled title="nur mit laufendem server.py"'}>FMH-PRÄSENTATIONEN SYNCHRONISIEREN</button><span class="meta">holt neue Anhänge aus der FMH-Fallmatrix (${esc(state.settings.fmhRepo)}) · GitHub-Token unter ⚙${state.lastFmhSync ? ` · zuletzt ${new Date(state.lastFmhSync).toLocaleString('de-CH')}` : ''}</span></div>
       <div class="progress" id="progress"></div>
       <div class="table-wrap" style="margin-top:28px"><table class="table" id="mat-table"><thead><tr><th>Datei</th><th class="num">Zeichen</th><th>Fälle</th><th class="num">Items</th><th></th></tr></thead><tbody></tbody></table></div>
       <details class="plain" style="margin-top:28px"><summary>EINGEBAUT · ${builtin.reduce((a, b) => a + b.entries.length, 0)} PRÄSENTATIONEN · ${IMAGES.length} BILDER · ${seedBank.length} SEED-ITEMS</summary>
       <div class="table-wrap"><table class="table"><tbody>${builtin.map(({ cid, entries }) => `<tr><td class="num" style="text-align:left">${esc(cid.toUpperCase())}</td><td>${esc(caseById(cid)?.title || '')}</td><td class="muted">${entries.map((e) => esc(e.name)).join(' · ')}</td></tr>`).join('')}</tbody></table></div></details>`;
     const drop = $('#drop'); const input = $('#file'); const progress = $('#progress');
+    $('#btn-sync').onclick = async () => { const b = $('#btn-sync'); b.disabled = true; try { await syncFmh((t) => { progress.textContent = t; }); table(); } catch (error) { progress.textContent = `Sync: ${error.message}`; toast(error.message, true); } b.disabled = false; };
     drop.onclick = () => input.click();
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
     drop.ondragleave = () => drop.classList.remove('over');
@@ -1248,14 +1397,14 @@
     function table() {
       $('#mat-table tbody').innerHTML = materialsIndex.length ? materialsIndex.map((m) => {
         const items = customBank.filter((it) => it.source === `material ${m.id}`).length;
-        return `<tr data-id="${m.id}"><td>${esc(m.name)}<br><span class="meta">${esc(m.status || '')}${m.images?.length ? ` · ${m.images.length} BILDER` : ''}</span></td><td class="num">${(m.chars || 0).toLocaleString('de-CH')}</td><td class="muted">${(m.caseIds || []).map((id) => esc(id.toUpperCase())).join(', ') || '–'}</td><td class="num">${items}</td>
+        return `<tr data-id="${m.id}"><td>${esc(m.name)}<br><span class="meta">${m.kind === 'fmh' ? 'FMH-MATRIX · ' : m.kind === 'aaos' ? 'AAOS TRACKER · ' : ''}${esc(m.status || '')}${m.images?.length ? ` · ${m.images.length} BILDER` : ''}</span></td><td class="num">${(m.chars || 0).toLocaleString('de-CH')}</td><td class="muted">${(m.caseIds || []).map((id) => esc(id.toUpperCase())).join(', ') || '–'}</td><td class="num">${items}</td>
           <td style="text-align:right;white-space:nowrap"><button class="btn small ghost" data-act="gen">ITEMS</button> <button class="btn small ghost danger" data-act="del">LÖSCHEN</button></td></tr>`;
       }).join('') : '<tr><td colspan="5" class="muted">Noch nichts abgelegt.</td></tr>';
     }
     table();
     $('#mat-table').onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return; const id = b.closest('tr').dataset.id;
-      if (b.dataset.act === 'del') { if (confirm('Material und seine generierten Items löschen?')) { await Store.deleteMaterial(id); customBank = customBank.filter((it) => it.source !== `material ${id}`); await Store.saveBank(); imageBank = imageBank.filter((it) => !it.id.startsWith(`img-${id}-`)); table(); } }
+      if (b.dataset.act === 'del') { if (confirm('Material und seine generierten Items löschen?')) { await Store.deleteMaterial(id); Index.forget(id); Index.rebuild(); customBank = customBank.filter((it) => it.source !== `material ${id}`); await Store.saveBank(); imageBank = imageBank.filter((it) => !it.id.startsWith(`img-${id}-`)); table(); } }
       if (b.dataset.act === 'gen') { b.disabled = true; await generateFromMaterial(id, (t) => { progress.textContent = t; }); b.disabled = false; table(); }
     };
     async function handleFiles(files) {
@@ -1263,21 +1412,23 @@
         const id = `m${uid()}`; const ext = file.name.toLowerCase().split('.').pop();
         progress.textContent = `${file.name} · lese …`;
         try {
-          let text = ''; const images = [];
+          let text = ''; const images = []; let kind = ext;
           const report = (t) => { progress.textContent = `${file.name} · ${t}`; };
-          if (ext === 'pdf') text = await extractPdf(file, report);
+          if (ext === 'json') { const parsed = JSON.parse(await file.text()); if (!parsed.chapters && !parsed.daily && !parsed.notes && !parsed.errorBank) throw new Error('kein AAOS-Tracker-Export'); text = aaosText(parsed); kind = 'aaos'; for (const old of materialsIndex.filter((m) => m.kind === 'aaos')) { await Store.deleteMaterial(old.id); Index.forget(old.id); customBank = customBank.filter((it) => it.source !== `material ${old.id}`); } }
+          else if (ext === 'pdf') text = await extractPdf(file, report);
           else if (ext === 'pptx') text = await extractPptx(file, report, state.settings.images ? images : null);
           else if (ext === 'docx') text = await extractDocx(file);
           else text = await file.text();
           text = text.replace(/[ \t]+/g, ' ').trim();
           if (!text && !images.length) throw new Error('kein Text gefunden');
-          const material = { id, name: file.name, kind: ext, chars: text.length, addedAt: Date.now(), caseIds: [], regions: [], status: 'extrahiert', images, text };
+          const material = { id, name: kind === 'aaos' ? `AAOS Tracker · ${file.name}` : file.name, kind, chars: text.length, addedAt: Date.now(), caseIds: [], regions: [], status: 'extrahiert', images, text };
           Store.uploadFile(file);
-          if (state.settings.apiKey && text) {
+          if (state.settings.apiKey && text && kind !== 'aaos') {
             report('ordne Fällen zu …');
             try { const tags = await chatJSON({ system: 'Du ordnest Lernmaterial Prüfungsfällen zu. Antworte nur mit JSON.', messages: [{ role: 'user', content: P.tagPrompt(material, text.slice(0, 5000), CASES) }], schema: P.TAG_SCHEMA, name: 'zuordnung' }); material.caseIds = (tags.caseIds || []).filter((x) => caseById(x)); material.regions = (tags.regions || []).filter((r) => P.REGIONS.includes(r)); } catch { /* optional */ }
           }
           await Store.putMaterial(material);
+          Index.materialText.set(id, text); Index.rebuild();
           imageBank = imageBank.filter((it) => !it.id.startsWith(`img-${id}-`)).concat(materialImageItems().filter((it) => it.id.startsWith(`img-${id}-`)));
           table();
           progress.textContent = `${file.name} · gespeichert (${text.length.toLocaleString('de-CH')} Zeichen${images.length ? `, ${images.length} Bilder` : ''})`;
@@ -1286,6 +1437,65 @@
         } catch (error) { progress.textContent = `${file.name} · Fehler: ${error.message}`; toast(error.message, true); }
       }
     }
+  }
+  // the AAOS tracker export (STATUS → EXPORT JSON in the tracker): notes and error log become one source
+  function aaosText(data) {
+    const parts = ['AAOS COR4 / ResStudy TRACKER · EIGENE NOTIZEN UND FEHLERLOG DES KANDIDATEN'];
+    for (const [key, note] of Object.entries(data.notes || {})) if (String(note || '').trim()) parts.push(`NOTIZ ${key}\n${String(note).trim()}`);
+    for (const e of data.errorBank || []) {
+      const lines = [`FEHLERLOG ${e.date || ''} · ${e.source || ''} ${e.id || ''} · ${e.type || ''}`.replace(/\s+/g, ' ').trim()];
+      if (e.question) lines.push(`Frage: ${e.question}`);
+      if (Array.isArray(e.choices) && e.choices.length) lines.push(`Optionen: ${e.choices.join(' | ')}`);
+      if (e.answer) lines.push(`Antwort: ${e.answer}`);
+      if (e.discussion) lines.push(`Diskussion: ${e.discussion}`);
+      if (lines.length === 1 && e.raw) lines.push(String(e.raw));
+      parts.push(lines.join('\n'));
+    }
+    return parts.join('\n\n');
+  }
+  // new attachments from the FMH case matrix (release assets <caseId>.<player>.<stamp>.<name> in the files repo)
+  async function gh(pathOrAsset, asBlob) {
+    const token = state.settings.githubToken.trim(); if (!token) throw new Error('GitHub-Token fehlt (⚙)');
+    const q = asBlob ? `asset=${encodeURIComponent(pathOrAsset)}` : `path=${encodeURIComponent(pathOrAsset)}`;
+    const r = await fetch(`/api/gh?repo=${encodeURIComponent(state.settings.fmhRepo)}&${q}`, { headers: { 'x-github-token': token }, cache: 'no-store' });
+    if (!r.ok) { let msg = `GitHub ${r.status}`; try { msg = (await r.json()).error || msg; } catch { /* keep */ } throw new Error(msg); }
+    return asBlob ? r.blob() : r.json();
+  }
+  async function syncFmh(report = () => {}) {
+    if (!serverOk) throw new Error('nur mit laufendem server.py');
+    report('FMH-Matrix · lese Anhangliste …');
+    const release = await gh('/releases/tags/attachments');
+    const assets = [];
+    for (let page = 1; page <= 20; page += 1) { const chunk = await gh(`/releases/${release.id}/assets?per_page=100&page=${page}`); assets.push(...chunk); if (chunk.length < 100) break; }
+    const known = new Set(materialsIndex.map((m) => m.fmhAsset).filter(Boolean).concat(state.fmhSeen || []));
+    const builtin = new Set(Object.entries(CORPUS).flatMap(([cid, es]) => es.map((e) => `${cid}/${e.name}`)).concat(IMAGES.map((im) => `${im.cases[0]}/${im.src}`)));
+    const fresh = assets.filter((a) => { const [cid, player, stamp, ...rest] = a.name.split('.'); return cid && player && stamp && rest.length && !known.has(a.id) && !builtin.has(`${cid}/${rest.join('.')}`); });
+    let added = 0;
+    for (const a of fresh) {
+      const [cid, , , ...rest] = a.name.split('.'); const name = rest.join('.'); const ext = name.toLowerCase().split('.').pop(); const c = caseById(cid);
+      report(`${name} · lade (${(a.size / 1048576).toFixed(1)} MB) …`);
+      try {
+        const blob = await gh(String(a.id), true); const file = new File([blob], name, { type: a.content_type || '' });
+        let text = ''; const images = [];
+        if (/^(jpe?g|png|webp|heic)$/.test(ext)) { if (c) await storeCaseImage(cid, await blobToJpeg(blob).catch(() => blob), `FMH-Matrix · ${name}`, ''); added += 1; (state.fmhSeen = state.fmhSeen || []).push(a.id); continue; }
+        if (ext === 'pdf') text = await extractPdf(file, (t) => report(`${name} · ${t}`));
+        else if (ext === 'pptx') text = await extractPptx(file, (t) => report(`${name} · ${t}`), state.settings.images ? images : null);
+        else if (ext === 'docx') text = await extractDocx(file);
+        else if (/^(txt|md)$/.test(ext)) text = await file.text();
+        else { report(`${name} · Format übersprungen`); continue; }
+        text = text.replace(/[ \t]+/g, ' ').trim();
+        if (!text && !images.length) { report(`${name} · kein Text`); continue; }
+        const material = { id: `m${uid()}`, name, kind: 'fmh', fmhAsset: a.id, chars: text.length, addedAt: Date.now(), caseIds: c ? [cid] : [], regions: c ? [regionOfCase(c)] : [], status: 'aus FMH-Matrix', images, text };
+        await Store.putMaterial(material); Index.materialText.set(material.id, text);
+        imageBank = imageBank.concat(materialImageItems().filter((it) => it.id.startsWith(`img-${material.id}-`)));
+        added += 1;
+        if (state.settings.apiKey && text) await generateFromMaterial(material.id, report);
+      } catch (error) { report(`${name} · Fehler: ${error.message}`); await sleep(800); }
+    }
+    state.lastFmhSync = Date.now(); clearTimeout(Store._timer); await Store.flush();
+    if (added) Index.rebuild();
+    report(`FMH-Matrix · ${assets.length} Anhänge, ${added} neu übernommen`);
+    return added;
   }
   async function generateFromMaterial(id, report) {
     if (!requireKey()) return 0;
@@ -1388,6 +1598,10 @@
             <label class="check"><input type="checkbox" id="s-web" ${s.webImages ? 'checked' : ''}> Websuche (Google Bilder, Wikimedia Commons), wenn kein eigenes Bild passt</label>
             <div class="row" style="margin-top:6px"><input type="password" id="s-gkey" value="${esc(s.googleKey)}" placeholder="Google API-Key (optional)" style="max-width:260px"><input type="text" id="s-gcx" value="${esc(s.googleCx)}" placeholder="Suchmaschinen-ID (cx)" style="max-width:220px"></div>
             <span class="hint">Google Bildsuche: programmablesearchengine.google.com → neue Suchmaschine, «Gesamtes Web» und Bildsuche an → ID kopieren; API-Key unter console.cloud.google.com (Custom Search JSON API, 100 Anfragen/Tag gratis). Ohne Key nur Commons.</span></div>
+          <div class="field"><span class="label">Quellen</span>
+            <label class="check"><input type="checkbox" id="s-fact" ${s.factCheck !== false ? 'checked' : ''}> Faktencheck nach jedem Fall: Kernaussagen gegen begutachtete Literatur prüfen (Websuche)</label>
+            <div class="row" style="margin-top:6px"><input type="password" id="s-gh" value="${esc(s.githubToken)}" placeholder="GitHub-Token (fine-grained, Contents: read)" style="max-width:300px"><input type="text" id="s-ghrepo" value="${esc(s.fmhRepo)}" placeholder="owner/repo" style="max-width:220px"></div>
+            <span class="hint">Für neue Präsentationen aus der FMH-Fallmatrix: github.com → Settings → Developer settings → Fine-grained token, nur dieses Repo, Permission «Contents: Read-only». Sync läuft beim Start (alle 6 h) und unter MATERIAL.</span></div>
           <div class="field"><span class="label">Tagesziel</span><input type="number" id="s-goal" value="${s.dailyGoal}" min="5" max="500" style="max-width:120px"></div>
           <div class="field"><span class="label">Zusätzliche Anweisung an den Prüfer</span><textarea id="s-custom" placeholder="z. B. Frag besonders nach Zugängen und Implantaten.">${esc(s.custom)}</textarea></div>
         </div>
@@ -1397,6 +1611,7 @@
       s.apiKey = $('#s-key').value.trim(); s.model = $('#s-model').value.trim() || 'auto'; s.effort = $('#s-effort').value; s.transcribeModel = $('#s-stt').value.trim() || 'gpt-4o-transcribe';
       s.ttsModel = $('#s-tts').value.trim() || 'gpt-4o-mini-tts'; s.ttsVoice = $('#s-voice').value; s.examinerVoice = $('#s-voice-on').checked; s.lang = $('#s-lang').value; s.strictness = $('#s-strict').value;
       s.followups = Number($('#s-followups').value); s.dailyGoal = Number($('#s-goal').value) || 30; s.custom = $('#s-custom').value.trim(); s.images = $('#s-images').checked; s.webImages = $('#s-web').checked; s.googleKey = $('#s-gkey').value.trim(); s.googleCx = $('#s-gcx').value.trim();
+      s.factCheck = $('#s-fact').checked; s.githubToken = $('#s-gh').value.trim(); s.fmhRepo = /^[\w.-]+\/[\w.-]+$/.test($('#s-ghrepo').value.trim()) ? $('#s-ghrepo').value.trim() : 'nekonomicus/fmh-oral-files';
     };
     $('#s-save').onclick = async () => {
       read();
@@ -1425,6 +1640,8 @@
     await Store.init();
     imageBank = imageBank.concat(materialImageItems());
     footer();
+    Index.ready();
+    if (serverOk && state.settings.githubToken && Date.now() - (state.lastFmhSync || 0) > 6 * 3600 * 1000) syncFmh().then((n) => { if (n) toast(`${n} neue Anhänge aus der FMH-Matrix übernommen`); }).catch(() => {});
     if (!state.settings.apiKey && !location.hash) location.hash = '#settings';
     navigate();
     if ('speechSynthesis' in window) window.speechSynthesis.getVoices();

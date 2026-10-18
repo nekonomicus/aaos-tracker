@@ -11,6 +11,10 @@ cd drill
 python3 server.py        # or double-click start.command
 ```
 
+Desktop icon: double-click `make-desktop-icon.command` once. It puts **FMH DRILL.app** on your
+Desktop; that icon starts the server in the background and opens the browser (or just opens the
+browser if the server is already running). Re-run it if you move the folder.
+
 Opens http://127.0.0.1:8765. First time: paste the OpenAI key under ⚙, press SPEICHERN,
 then VERBINDUNG TESTEN. The key and all progress live in `drill/userdata/` (git-ignored):
 
@@ -54,17 +58,48 @@ browser's own voice), Space reveals, 1/2/3 rates.
 **FREI** — free prompt with the same examiner persona, grounded on a region or a case.
 
 **MATERIAL** — dump pad. Drop PDFs (any size; scanned pages are OCR'd through the vision
-model), PPTX, DOCX, TXT. Text is extracted in the browser, stored locally, mapped to the
-cases it covers, and turned into drill items. Materials also feed the examiner when you run
-a case they are mapped to.
+model), PPTX, DOCX, TXT, and the JSON export of your AAOS tracker (its notes and error log
+become one source). Text is extracted in the browser, stored locally, and turned into drill
+items. Everything here is also indexed as a source, see **Sources** below.
+"FMH-PRÄSENTATIONEN SYNCHRONISIEREN" pulls new attachments from the FMH case matrix
+(release assets of the files repo; GitHub token under ⚙); it also runs quietly at start,
+at most every 6 hours. New PPTX/PDF/DOCX attachments become sources mapped to their case,
+new image attachments become case images.
 
 **STATUS** — per-region accuracy, items due, case grades, weakest items and cases, daily
 activity, export/import.
 
+## Sources
+
+The examiner does not rely on general knowledge first. Every source is split into short
+passages and indexed in the browser (BM25 over stemmed German/English tokens): the FMH
+presentations, everything in MATERIAL (your PDFs, PPTX, DOCX, AAOS notes, synced
+presentations). Each model call retrieves the passages that match its question of the
+moment, so the model goes back into your material at every step rather than once per case:
+
+- case creation: the case's own presentation in full, plus the best-matching passages for a
+  set of search terms the model generates once per case (German + English, eponyms,
+  classifications; cached in state.json);
+- every examiner turn: the passages matching the station, your answer and the last question
+  are attached to that turn only, as a "Nachschlag";
+- feedback: grounded on the retrieved passages, lists the sources it used ("QUELLEN");
+- quiz grading, NACHFRAGEN and FREI: the passages matching the question or message.
+
+Hierarchy told to the model: 1. your sources; 2. textbook/guideline knowledge where they are
+silent; 3. if your sources contradict current evidence, evidence wins and the contradiction
+is named. The web is used only for images and for the last instance, the **fact check**:
+after each case the 3–6 hard claims of the feedback (grade thresholds, classification types,
+indication criteria) are checked with web search against peer-reviewed sources (Cochrane,
+NEJM, Lancet, JAMA, BMJ, JBJS, BJJ, CORR, JOT, AO Surgery Reference, guidelines) and shown
+as ✓ confirmed / ✗ corrected / ? unclear with the citation. In ABFRAGE, FAKTENCHECK does the
+same for one item on demand; a corrected model answer of a generated item can be replaced in
+one click. Toggle under ⚙.
+
 ## Content
 
 - `data/cases.js` — the 123 cases from the FMH tracker (`fmh-oral-2026/app/study-data.ts`).
-- `data/corpus.js` — slide and notes text of the 51 presentations attached to those cases.
+- `data/corpus.js` — slide and notes text of the 51 presentations attached to those cases
+  (as of Oct 2026; newer attachments arrive through the sync in MATERIAL).
 - `data/images.js` + `data/img/` — 153 images from those presentations (radiographs, CT, MRI,
   classification schemas, anatomy), labelled by kind and mapped to cases. In PRÜFUNG the
   examiner gets the radiographs of the case and builds the dossier on one of them only if it
