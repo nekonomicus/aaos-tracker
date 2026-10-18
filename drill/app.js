@@ -396,27 +396,31 @@
 
   // images for a case: own slides first, Wikimedia Commons as fallback
   async function imageCandidates(caseItem) {
-    const out = [];
-    if (!state.settings.images) return out;
+    const out = []; out.note = '';
+    if (!state.settings.images) { out.note = 'Bilder in den Einstellungen ausgeschaltet'; return out; }
     const own = shuffle(IMAGES.filter((i) => i.cases.includes(caseItem.id) && ['xray', 'ct', 'mri'].includes(i.kind)));
     for (const img of own.slice(0, 3)) {
       try { out.push({ src: `data/img/${img.file}`, url: await toDataUrl(`data/img/${img.file}`), credit: `${img.src} · Folie ${img.slide}`, note: img.text ? img.text.slice(0, 200) : '' }); } catch { /* skip */ }
     }
+    if (!out.length) out.note = own.length ? 'eigene Bilder nicht ladbar' : 'keine eigenen Bilder zu diesem Fall';
     if (!out.length && state.settings.webImages) {
+      let found = 0;
       try {
         const q = await chatJSON({ system: 'Antworte nur mit JSON.', messages: [{ role: 'user', content: P.commonsQueryPrompt(caseItem) }], schema: P.COMMONS_SCHEMA, name: 'commons' });
-        for (const query of (q.queries || []).slice(0, 2)) {
-          const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&origin=*`;
+        for (const query of (q.queries || []).slice(0, 3)) {
+          const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&origin=*`;
           const data = await fetch(api).then((r) => r.json()).catch(() => null);
           for (const page of Object.values(data?.query?.pages || {})) {
-            const info = page.imageinfo?.[0]; if (!info || !/image\/(jpeg|png)/.test(info.mime) || info.width < 500) continue;
+            const info = page.imageinfo?.[0]; if (!info || !/image\/(jpeg|png)/.test(info.mime) || info.width < 400) continue;
+            found += 1;
             try { out.push({ src: info.thumburl || info.url, url: await toDataUrl(info.thumburl || info.url, 1200), credit: `Wikimedia Commons · ${page.title.replace(/^File:/, '')}`, note: (info.extmetadata?.ImageDescription?.value || '').replace(/<[^>]+>/g, '').slice(0, 200) }); } catch { /* CORS or decode failure */ }
-            if (out.length >= 4) break;
+            if (out.length >= 5) break;
           }
-          if (out.length >= 4) break;
+          if (out.length >= 5) break;
         }
-      } catch { /* web images are optional */ }
-    }
+        out.note += found ? ` · Commons: ${found} Treffer, ${out.length} ladbar` : ' · Commons: keine Treffer';
+      } catch (error) { out.note += ` · Commons nicht erreichbar (${error.message})`; }
+    } else if (!out.length) out.note += ' · Commons ausgeschaltet';
     return out;
   }
 
@@ -566,7 +570,7 @@
     answerEl.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendBtn.click(); } });
     $('#btn-abort').onclick = () => { if (confirm('Fall abbrechen? Es wird nichts gewertet.')) { state.activeExam = null; session.status = 'abgebrochen'; Store.putSession(session); Store.saveState(); location.hash = '#exam'; } };
     function showDossier(dossier, image) {
-      $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN</span><p>${esc(dossier.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span>${image ? `<div class="case-images"><img src="${esc(image.src)}" data-zoom alt=""></div><div class="img-credit">${esc(image.credit)}</div>` : ''}<p>${esc(dossier.bildgebung)}</p>`;
+      $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN</span><p>${esc(dossier.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span>${image ? `<div class="case-images"><img src="${esc(image.src)}" data-zoom alt=""></div><div class="img-credit">${esc(image.credit)}</div>` : ''}<p>${esc(dossier.bildgebung)}</p>${!image && session.imageNote ? `<div class="img-credit">Textbeschreibung statt Bild · ${esc(session.imageNote)}</div>` : ''}`;
     }
     async function resume() {
       session.system = session.system || P.examinerSystem(state.settings, caseItem, session.dossier, await groundingForCase(caseItem), memoryFor(caseItem));
@@ -623,6 +627,7 @@
         const chosen = dossier.bild_geeignet && candidates[dossier.bild_index] ? candidates[dossier.bild_index] : null;
         if (!chosen) { dossier.bild_geeignet = false; dossier.bild_index = -1; }
         session.dossier = dossier; session.image = chosen ? { src: chosen.src, credit: chosen.credit } : null;
+        session.imageNote = chosen ? '' : (candidates.length ? `${candidates.length} Kandidatenbild(er) vom Prüfer als nicht eindeutig verworfen` : candidates.note || 'kein Bild');
         session.system = P.examinerSystem(state.settings, caseItem, dossier, grounding, memory);
         showDossier(dossier, session.image);
         $('#answer-box').hidden = false;
