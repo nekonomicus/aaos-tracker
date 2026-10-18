@@ -235,7 +235,7 @@
       audio: {
         input: {
           noise_reduction: { type: 'near_field' },
-          transcription: { model: s.transcribeModel || 'gpt-4o-transcribe', language: s.lang === 'en' ? 'en' : 'de', prompt: P.VOICE_TRANSCRIBE_PROMPT },
+          transcription: { model: s.transcribeModel || 'gpt-4o-transcribe', language: s.lang === 'en' ? 'en' : 'de' }, // no prompt: it gets echoed as the transcript on short or noisy utterances
           turn_detection: { type: 'semantic_vad', eagerness: eagerness || s.eagerness || 'low', create_response: !!createResponse, interrupt_response: true },
         },
         output: { voice: s.realtimeVoice || 'cedar', speed: 1 },
@@ -627,7 +627,12 @@
           users.set(it.id, { el: add('candidate', '…'), text: '', entry }); break;
         }
         case 'conversation.item.input_audio_transcription.delta': { const u = users.get(e.item_id); if (u) { u.text += e.delta || ''; u.el.textContent = u.text; } break; }
-        case 'conversation.item.input_audio_transcription.completed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); u.entry.content = (e.transcript || u.text || '').trim() || '(unverständlich)'; u.el.textContent = u.entry.content; onTurn(u.entry, false); break; }
+        case 'conversation.item.input_audio_transcription.completed': {
+          const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id);
+          const text = (e.transcript || u.text || '').trim();
+          if (!text) { u.el.closest('.msg')?.remove(); u.entry.content = ''; onTurn(u.entry, false); break; } // noise, nothing said
+          u.entry.content = text; u.el.textContent = text; onTurn(u.entry, false); break;
+        }
         case 'conversation.item.input_audio_transcription.failed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); u.entry.content = '(Transkription fehlgeschlagen)'; u.el.textContent = u.entry.content; onTurn(u.entry, false); break; }
         case 'response.created': ex = null; exText = ''; break;
         case 'response.output_audio_transcript.delta': case 'response.audio_transcript.delta': { if (!ex) ex = add('examiner', ''); exText += e.delta || ''; ex.textContent = exText; break; }
@@ -1021,7 +1026,8 @@
           case 'conversation.item.input_audio_transcription.delta': { const u = this.users.get(e.item_id); if (u) { u.text += e.delta || ''; this.show(u); } break; }
           case 'conversation.item.input_audio_transcription.completed': {
             const u = this.users.get(e.item_id); if (!u) break; this.users.delete(e.item_id);
-            u.text = (e.transcript || u.text || '').trim() || '(unverständlich)';
+            u.text = (e.transcript || u.text || '').trim();
+            if (!u.text) { u.text = '(unverständlich)'; if (!u.done) this.uncount(u); this.show(u); Store.putSession(session); break; } // noise: not an answer
             const question = looksLikeQuestion(u.text);
             if (u.decide) { const d = u.decide; u.decide = null; if (question) this.uncount(u); else { this.show(u); if (this.go(d)) return; } } // examiner answered before the transcript: decide now
             else if (!u.done && question) this.uncount(u); else this.show(u);
@@ -1521,7 +1527,7 @@
       system: async () => (await freeContext('')).system,
       onTurn: (entry, fresh) => { if (fresh) messages.push(entry); },
       history: () => messages,
-      greeting: 'Begrüsse den Kandidaten in einem kurzen Satz, nenne den gewählten Fokus, und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.',
+      greeting: 'Begrüsse den Kandidaten in einem kurzen Satz, nenne den Fokus und stelle sofort die erste Prüferfrage dazu.',
     });
     // START: brief the examiner on the chosen case or region and begin (re-briefs a running call, connects otherwise)
     $('#free-start').onclick = async () => {
@@ -1530,10 +1536,10 @@
       try {
         const { label } = await freeContext('');
         messages = []; chat.innerHTML = '';
-        const note = label ? `Neuer Fokus: ${label}. Sage das in einem Satz und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.` : 'Kein Fokus gewählt. Frage in einem Satz, welches Thema und was der Kandidat will.';
+        const note = label ? `Neuer Fokus: ${label}. Sage das in einem Satz und stelle sofort die erste Prüferfrage dazu.` : 'Kein Fokus gewählt: wähle selbst ein prüfungsrelevantes Thema, nenne es in einem Satz und stelle sofort die erste Prüferfrage.';
         if (liveFree && liveFree.on()) await liveFree.rebrief(note);
         else if (liveFree) await liveFree.start(note);
-        else add('examiner', label ? `Fokus: ${label}. Womit anfangen: Abfrage, Fall oder Erklärung?` : 'Welches Thema, und was möchten Sie: Abfrage, Fall oder Erklärung?');
+        else add('examiner', label ? `Fokus: ${label}. Schreiben Sie los, oder sagen Sie "Fall" oder "Abfrage".` : 'Schreiben Sie los, oder sagen Sie "Fall" oder "Abfrage".');
       } catch (error) { toast(error.message, true); }
       b.disabled = false; ta.focus();
     };

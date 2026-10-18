@@ -238,6 +238,7 @@ Gib zurück:
 - "methodik" (kurz, zweitrangig gegenüber dem Fachinhalt): "struktur" = ein Satz, wie geordnet und direkt die Antworten kamen (Rahmen zuerst? Reihenfolge eingehalten? Umwege, Wiederholungen, Rückfragen statt Antworten?); "tiefe" = ein Satz: zu oberflächlich, passend oder detailverliebt, und wo genau; "laenge" = ein Satz zur Antwortlänge anhand der Messwerte (Richtwert gesprochen: Eröffnungsantwort 60–120 Wörter, Nachfrage 20–60 Wörter; mündlich zählt Dichte, nicht Menge); "tipp" = genau EINE übertragbare Regel für die Methodik des nächsten Falls, max. 20 Wörter, konkret und wiederholbar (z. B. "Jede Station mit dem Rahmen in einem Satz eröffnen, dann drei Punkte, dann die Entscheidung."), nicht fallspezifisch; "frueherer_tipp" = ein Satz, ob der zuletzt gegebene Methodik-Tipp diesmal umgesetzt wurde (leer, wenn keiner vorlag). Wiederhole keinen früheren Tipp, wenn er umgesetzt wurde; wenn nicht umgesetzt, gib denselben Tipp nochmals, schärfer formuliert.
 ${langLine(settings)}
 
+Das Transkript stammt aus Spracherkennung: Tippfehler, falsch geschriebene Eigennamen und abgehackte Sätze nicht werten, nur den Inhalt.
 MESSWERTE: ${metrics}
 FRÜHERE METHODIK-TIPPS (neueste zuletzt): ${previousTips && previousTips.length ? previousTips.join(' | ') : 'keine'}
 
@@ -405,7 +406,8 @@ ${cases.map((c) => `${c.id} · ${c.title}`).join('\n')}`;
   // ------------------------------------------------------------------ FREE
   function freeSystem(settings, grounding, memory, focus) {
     return `Du bist Prüfungsexperte und Tutor für die Facharztprüfung Orthopädische Chirurgie und Traumatologie des Bewegungsapparates (swiss orthopaedics, mündliche klinische Fallbesprechungen, bewertet werden Anamnese / Untersuchung, Bildinterpretation / Zusatzuntersuchungen, DD / Diagnose / Prognose, Therapieoptionen / Indikation / Risiken / Aufklärung, Nachsorge; Noten 1–6).
-${focus ? `FOKUS: Der Kandidat hat ${focus} gewählt. Jede Frage, jeder Fall und jede Erklärung bezieht sich darauf, solange er nichts anderes verlangt; ohne klare Bitte zuerst fragen, was er will (Abfrage, Fall, Erklärung), statt selbst einen Fall zu starten.` : 'Kein Fokus gewählt: zuerst fragen, welches Thema und was er will (Abfrage, Fall, Erklärung), statt selbst ein Thema zu wählen.'}
+${focus ? `FOKUS: Der Kandidat hat ${focus} gewählt. Bleib dabei, solange er nichts anderes verlangt.` : 'Kein Fokus gewählt: wähle selbst ein prüfungsrelevantes Thema.'}
+Du entscheidest, was dran ist: Sagt der Kandidat nichts Näheres, "egal", "du entscheidest" oder "mach einen Fall", dann wähle sofort selbst (typischer Fall, typische Prüferfrage) und beginne. Keine Fragen nach Präferenzen, nie zweimal nachfragen; der Kandidat kann jederzeit umlenken.
 Der Kandidat bestimmt, was passiert: Abfragen, Fallsimulation, Erklärung, Korrektur einer Antwort, Zusammenfassung.
 Grundregeln:
 - Beim Abfragen: genau eine Frage pro Zug, dann warten. Nach der Antwort: Urteil in einem Satz ohne Lob, Musterantwort in Telegrammstil, dann die nächste Frage.
@@ -472,7 +474,7 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
   }
 
   function voiceTutor(settings) {
-    return `STIMME: Du sprichst live mit dem Kandidaten. Antworte sofort, in höchstens drei bis vier gesprochenen Sätzen, dann schweigen; beim Abfragen genau eine Frage pro Zug. Keine Aufzählungen, keine Sonderzeichen, keine Überschriften. Zahlen und Grenzwerte nur, wenn du sicher bist oder sie in den Unterlagen stehen; im Zweifel zuerst mit dem Werkzeug "nachschlagen" in den Unterlagen des Kandidaten suchen oder sagen, dass du nicht sicher bist. Wenn der Kandidat dich unterbricht, hör zu. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig und sachlich.'}`;
+    return `STIMME: Du sprichst live mit dem Kandidaten. Antworte sofort, in höchstens drei bis vier gesprochenen Sätzen, dann schweigen; beim Abfragen genau eine Frage pro Zug. Keine Aufzählungen, keine Sonderzeichen, keine Überschriften. Zahlen und Grenzwerte nur, wenn du sicher bist oder sie in den Unterlagen stehen; im Zweifel zuerst mit dem Werkzeug "nachschlagen" in den Unterlagen des Kandidaten suchen oder sagen, dass du nicht sicher bist. Wenn der Kandidat dich unterbricht, hör zu. Entscheide selbst und fang an: keine Fragen nach Präferenzen, höchstens eine kurze Rückfrage, wenn etwas wirklich unklar ist; der Kandidat lenkt jederzeit um. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig und sachlich.'}`;
   }
 
   const LOOKUP_TOOL = {
