@@ -190,7 +190,7 @@ Antworte als JSON: {"reaktion": "<leer oder max. 1 Satz; falls der Kandidat Befu
     properties: { reaktion: { type: 'string' }, frage: { type: 'string' } },
   };
 
-  function feedbackPrompt(settings, caseItem, dossier, transcript) {
+  function feedbackPrompt(settings, caseItem, dossier, transcript, metrics, previousTips) {
     return `Die Fallbesprechung ist beendet. Bewerte den Kandidaten jetzt als Prüfungsexperte nach dem offiziellen Schema.
 
 ${GRADE_ANCHORS}
@@ -205,7 +205,11 @@ Gib zurück:
 - "musterantwort": pro Station das Gerüst einer 6er-Antwort in Telegrammstil, max. 80 Wörter, in der erwarteten Reihenfolge.
 - "merksaetze": genau 3 Sätze zum Auswendiglernen, jeder mit einer harten Tatsache (Klassifikation, Zahl, Regel), abgeleitet aus den Lücken.
 - "drills": 3–5 Abfrage-Items aus den Lücken dieses Kandidaten: "typ" ∈ ${JSON.stringify(TYPES)}, "frage" (Prüferfrage), "antwort" (Musterantwort ≤ 50 Wörter), "thema".
+- "methodik" (kurz, zweitrangig gegenüber dem Fachinhalt): "struktur" = ein Satz, wie geordnet und direkt die Antworten kamen (Rahmen zuerst? Reihenfolge eingehalten? Umwege, Wiederholungen, Rückfragen statt Antworten?); "tiefe" = ein Satz: zu oberflächlich, passend oder detailverliebt, und wo genau; "laenge" = ein Satz zur Antwortlänge anhand der Messwerte (Richtwert gesprochen: Eröffnungsantwort 60–120 Wörter, Nachfrage 20–60 Wörter; mündlich zählt Dichte, nicht Menge); "tipp" = genau EINE übertragbare Regel für die Methodik des nächsten Falls, max. 20 Wörter, konkret und wiederholbar (z. B. "Jede Station mit dem Rahmen in einem Satz eröffnen, dann drei Punkte, dann die Entscheidung."), nicht fallspezifisch; "frueherer_tipp" = ein Satz, ob der zuletzt gegebene Methodik-Tipp diesmal umgesetzt wurde (leer, wenn keiner vorlag). Wiederhole keinen früheren Tipp, wenn er umgesetzt wurde; wenn nicht umgesetzt, gib denselben Tipp nochmals, schärfer formuliert.
 ${langLine(settings)}
+
+MESSWERTE: ${metrics}
+FRÜHERE METHODIK-TIPPS (neueste zuletzt): ${previousTips && previousTips.length ? previousTips.join(' | ') : 'keine'}
 
 FALL: ${caseItem.title}
 DOSSIER: ${JSON.stringify(dossier)}
@@ -215,8 +219,12 @@ ${transcript}`;
 
   const FEEDBACK_SCHEMA = {
     type: 'object', additionalProperties: false,
-    required: ['noten', 'note', 'fehlend', 'gut', 'musterantwort', 'merksaetze', 'drills'],
+    required: ['noten', 'note', 'fehlend', 'gut', 'musterantwort', 'merksaetze', 'drills', 'methodik'],
     properties: {
+      methodik: {
+        type: 'object', additionalProperties: false, required: ['struktur', 'tiefe', 'laenge', 'tipp', 'frueherer_tipp'],
+        properties: { struktur: { type: 'string' }, tiefe: { type: 'string' }, laenge: { type: 'string' }, tipp: { type: 'string' }, frueherer_tipp: { type: 'string' } },
+      },
       noten: {
         type: 'object', additionalProperties: false,
         required: ['anamnese_untersuchung', 'bildgebung_zusatz', 'dd_diagnose_prognose', 'therapie_indikation_aufklaerung', 'nachsorge', 'struktur'],

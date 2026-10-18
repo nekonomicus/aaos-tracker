@@ -417,6 +417,16 @@
     return out;
   }
 
+  function latestTip() { const log = state.methodLog || []; return log.length ? log[log.length - 1].tipp : ''; }
+  function answerMetrics(session) {
+    const answers = session.transcript.filter((m) => m.role === 'candidate').map((m) => m.text.trim().split(/\s+/).filter(Boolean).length);
+    if (!answers.length) return 'keine Antworten';
+    const openers = answers.filter((_, i) => i % Math.max(1, Math.round(answers.length / 5)) === 0);
+    const total = answers.reduce((a, b) => a + b, 0);
+    const minutes = Math.round(((session.endedAt || Date.now()) - session.startedAt) / 60000);
+    return `${answers.length} Antworten, insgesamt ${total} Wörter, Ø ${Math.round(total / answers.length)} Wörter pro Antwort (min ${Math.min(...answers)}, max ${Math.max(...answers)}), Eröffnungsantworten Ø ${Math.round(openers.reduce((a, b) => a + b, 0) / openers.length)} Wörter, Dauer ${minutes} min von 15.`;
+  }
+
   // ------------------------------------------------------------------ router
   const view = $('#view');
   let currentCleanup = null;
@@ -512,6 +522,7 @@
         <aside class="session-side">
           <div class="side-block"><span class="label muted">ERWARTETE STRUKTUR</span><div class="schema" id="schema"></div></div>
           <div class="side-block"><div class="schema">${P.STATIONS.map((s, i) => `<div id="st-${i}">${i + 1} · ${esc(s.label)}</div>`).join('')}</div></div>
+          ${latestTip() ? `<div class="side-block"><span class="label muted">FOKUS · METHODIK</span><div class="schema"><strong>${esc(latestTip())}</strong></div></div>` : ''}
         </aside>
       </div>`;
 
@@ -616,11 +627,14 @@
       $('#answer-box').hidden = true;
       const thinking = document.createElement('div'); thinking.className = 'thinking'; thinking.innerHTML = '<span class="spinner"></span> &nbsp;BEWERTUNG'; transcriptEl.appendChild(thinking);
       const transcript = session.transcript.filter((m) => m.role !== 'system').map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n');
+      const metrics = answerMetrics(session);
+      const previousTips = (state.methodLog || []).slice(-4).map((m) => m.tipp);
       try {
-        const fb = await chatJSON({ system: 'Du bist Prüfungsexperte und bewertest nach dem offiziellen Schema. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.feedbackPrompt(state.settings, caseItem, session.dossier, transcript) }], schema: P.FEEDBACK_SCHEMA, name: 'feedback', heavy: true });
+        const fb = await chatJSON({ system: 'Du bist Prüfungsexperte und bewertest nach dem offiziellen Schema. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.feedbackPrompt(state.settings, caseItem, session.dossier, transcript, metrics, previousTips) }], schema: P.FEEDBACK_SCHEMA, name: 'feedback', heavy: true });
         thinking.remove();
         session.feedback = fb; session.status = 'beendet'; session.endedAt = Date.now(); session.grade = fb.note;
         (state.caseLog[caseId] = state.caseLog[caseId] || []).push({ t: Date.now(), grade: fb.note, noten: fb.noten, sessionId: session.id, variant: session.dossier.titel, fehlend: (fb.fehlend || []).slice(0, 6) });
+        if (fb.methodik?.tipp) (state.methodLog = state.methodLog || []).push({ t: Date.now(), caseId, tipp: fb.methodik.tipp, struktur: fb.noten?.struktur });
         bump('exam');
         const added = await addItems(fb.drills || [], `prüfung ${caseId}`, [caseId]);
         Store.putSession(session);
@@ -636,6 +650,7 @@
         <div class="row between"><div class="big-grade ${gradeClass(fb.note)}">${fmtGrade(fb.note)}</div><div class="meta">${esc(session.dossier.loesung.diagnose)}<br>${esc(session.dossier.loesung.klassifikation)}</div></div>
         <div class="scores">${keys.map(([k, l]) => `<div class="score"><div class="v ${gradeClass(n[k])}">${n[k]}</div><div class="k">${esc(l)}</div></div>`).join('')}</div>
         ${session.dossier.bild_befund ? `<p class="meta" style="margin-bottom:14px">BILDBEFUND · ${esc(session.dossier.bild_befund)}</p>` : ''}
+        ${fb.methodik ? `<div class="methodik"><span class="label muted">METHODIK</span><div class="schema">${esc(fb.methodik.struktur)} ${esc(fb.methodik.tiefe)} ${esc(fb.methodik.laenge)}${fb.methodik.frueherer_tipp ? ` ${esc(fb.methodik.frueherer_tipp)}` : ''}</div><div class="tipp">${esc(fb.methodik.tipp)}</div></div>` : ''}
         <div class="grid2">
           <div><h3>Gefehlt / falsch</h3><ul class="clean">${(fb.fehlend || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
           <div>${fb.gut?.length ? `<h3>Gut</h3><ul class="clean">${fb.gut.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -1102,6 +1117,7 @@
         <div><h3>Schwächste Items</h3>${weakItems.length ? `<ul class="clean">${weakItems.map(({ it, acc }) => `<li><span class="num ${acc < 0.5 ? 'warn' : 'signal'}">${Math.round(acc * 100)}%</span> &nbsp;${esc(it.q)}</li>`).join('')}</ul>` : '<p class="muted">Noch keine Daten.</p>'}</div>
         <div><h3>Schwächste Fälle</h3>${(() => { const g = CASES.filter((c) => caseSummary(c.id).mean != null).sort((a, b) => caseSummary(a.id).mean - caseSummary(b.id).mean).slice(0, 12); return g.length ? `<ul class="clean">${g.map((c) => `<li><span class="num ${gradeClass(caseSummary(c.id).mean)}">${fmtGrade(caseSummary(c.id).mean)}</span> &nbsp;<a href="#exam/${c.id}">${esc(c.title)}</a></li>`).join('')}</ul>` : '<p class="muted">Noch keine Fallprüfung.</p>'; })()}</div>
       </div>
+      ${(state.methodLog || []).length ? `<hr class="sep"><h3>Methodik</h3><ul class="clean">${(state.methodLog || []).slice(-6).reverse().map((m) => `<li><span class="num ${gradeClass(m.struktur)}">${m.struktur ?? '–'}</span> &nbsp;${esc(m.tipp)} <span class="faint">· ${esc(caseById(m.caseId)?.title || m.caseId)}</span></li>`).join('')}</ul>` : ''}
       ${flagged.length ? `<hr class="sep"><h3>Gemeldete Items</h3><ul class="clean">${flagged.map((it) => `<li>${esc(it.q)} <span class="muted">→ ${esc(it.a)}</span> <button class="btn small ghost" data-unflag="${it.id}">OK</button></li>`).join('')}</ul>` : ''}
       <hr class="sep">
       <div class="row"><button class="btn ghost" id="btn-export">EXPORT</button><button class="btn ghost" id="btn-import">IMPORT</button><input type="file" id="import-file" accept=".json" hidden><span class="meta">${serverOk ? 'USERDATA/ AUF DIESEM RECHNER' : 'BROWSER-SPEICHER · server.py starten für Dateien auf dem Mac'}</span></div>`;
