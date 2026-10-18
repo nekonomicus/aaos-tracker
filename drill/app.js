@@ -137,7 +137,6 @@
   function baseBody(model, heavy, extra = {}) {
     const body = { model, ...extra };
     if (isReasoningModel(model)) body.reasoning_effort = effortFor(heavy);
-    else body.temperature = 0.3;
     return body;
   }
   async function openaiFetch(path, init) {
@@ -168,8 +167,8 @@
     try {
       return await attempt({ type: 'json_schema', json_schema: { name, strict: true, schema } }, body);
     } catch (error) {
-      if (/reasoning_effort|Unsupported parameter|unsupported_parameter|unsupported_value/i.test(error.message) && body.reasoning_effort) {
-        delete body.reasoning_effort;
+      if (/reasoning_effort|temperature|Unsupported parameter|unsupported_parameter|Unsupported value|unsupported_value/i.test(error.message) && (body.reasoning_effort || body.temperature !== undefined)) {
+        delete body.reasoning_effort; delete body.temperature;
         return attempt({ type: 'json_schema', json_schema: { name, strict: true, schema } }, body);
       }
       if (/response_format|json_schema/i.test(error.message)) {
@@ -186,8 +185,8 @@
     try {
       res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     } catch (error) {
-      if (/reasoning_effort|Unsupported parameter|unsupported_value/i.test(error.message) && body.reasoning_effort) {
-        delete body.reasoning_effort;
+      if (/reasoning_effort|temperature|Unsupported parameter|Unsupported value|unsupported_value/i.test(error.message) && (body.reasoning_effort || body.temperature !== undefined)) {
+        delete body.reasoning_effort; delete body.temperature;
         res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       } else throw error;
     }
