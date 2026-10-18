@@ -28,7 +28,7 @@
   // ------------------------------------------------------------------ state
   const DEFAULT_SETTINGS = {
     apiKey: '', model: 'auto', resolvedModel: '', effort: 'ausgewogen', transcribeModel: 'gpt-4o-transcribe', ttsModel: 'gpt-4o-mini-tts', ttsVoice: 'onyx',
-    examinerVoice: false, lang: 'de', strictness: 'hart', followups: 1, custom: '', dailyGoal: 30, readAloud: false, quizCount: 20, images: true, webImages: true,
+    examinerVoice: false, lang: 'de', strictness: 'hart', followups: 1, custom: '', dailyGoal: 30, readAloud: false, quizCount: 20, images: true, webImages: true, googleKey: '', googleCx: '',
   };
   let state = { version: 2, settings: { ...DEFAULT_SETTINGS }, items: {}, caseLog: {}, daily: {}, lastFilters: {} };
   let customBank = [];
@@ -249,6 +249,7 @@
     if (v) u.voice = v;
     window.speechSynthesis.speak(u);
   }
+  const proxied = (url) => (serverOk && /^https?:/.test(url) ? `/api/fetch?url=${encodeURIComponent(url)}` : url);
   async function toDataUrl(src, maxSide = 1400) {
     const blob = await fetch(src).then((r) => { if (!r.ok) throw new Error(`Bild ${r.status}`); return r.blob(); });
     const bitmap = await createImageBitmap(blob);
@@ -404,23 +405,45 @@
     }
     if (!out.length) out.note = own.length ? 'eigene Bilder nicht ladbar' : 'keine eigenen Bilder zu diesem Fall';
     if (!out.length && state.settings.webImages) {
-      let found = 0;
+      let found = 0; const sources = [];
+      const addWeb = async (url, credit, note) => {
+        found += 1;
+        try { out.push({ src: proxied(url), url: await toDataUrl(proxied(url), 1200), credit, note: (note || '').replace(/<[^>]+>/g, '').slice(0, 200) }); } catch { /* not loadable */ }
+      };
       try {
         const q = await chatJSON({ system: 'Antworte nur mit JSON.', messages: [{ role: 'user', content: P.commonsQueryPrompt(caseItem) }], schema: P.COMMONS_SCHEMA, name: 'commons' });
-        for (const query of (q.queries || []).slice(0, 3)) {
-          const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&origin=*`;
-          const data = await fetch(api).then((r) => r.json()).catch(() => null);
-          for (const page of Object.values(data?.query?.pages || {})) {
-            const info = page.imageinfo?.[0]; if (!info || !/image\/(jpeg|png)/.test(info.mime) || info.width < 400) continue;
-            found += 1;
-            try { out.push({ src: info.thumburl || info.url, url: await toDataUrl(info.thumburl || info.url, 1200), credit: `Wikimedia Commons · ${page.title.replace(/^File:/, '')}`, note: (info.extmetadata?.ImageDescription?.value || '').replace(/<[^>]+>/g, '').slice(0, 200) }); } catch { /* CORS or decode failure */ }
+        const queries = (q.queries || []).slice(0, 3);
+        if (state.settings.googleKey && state.settings.googleCx) {
+          sources.push('Google');
+          for (const query of queries) {
+            const api = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(state.settings.googleKey)}&cx=${encodeURIComponent(state.settings.googleCx)}&searchType=image&num=8&imgSize=large&safe=off&q=${encodeURIComponent(query)}`;
+            const data = await fetch(api).then((r) => r.json()).catch(() => null);
+            if (data?.error) { out.note += ` · Google: ${data.error.message}`; break; }
+            for (const item of data?.items || []) {
+              if (!/\.(jpe?g|png|webp)(\?|$)/i.test(item.link) && !/image\/(jpeg|png|webp)/.test(item.mime || '')) continue;
+              if ((item.image?.width || 0) < 400) continue;
+              await addWeb(item.link, `${item.displayLink} · ${item.title}`, item.snippet);
+              if (out.length >= 5) break;
+            }
             if (out.length >= 5) break;
           }
-          if (out.length >= 5) break;
         }
-        out.note += found ? ` · Commons: ${found} Treffer, ${out.length} ladbar` : ' · Commons: keine Treffer';
-      } catch (error) { out.note += ` · Commons nicht erreichbar (${error.message})`; }
-    } else if (!out.length) out.note += ' · Commons ausgeschaltet';
+        if (out.length < 3) {
+          sources.push('Commons');
+          for (const query of queries) {
+            const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&origin=*`;
+            const data = await fetch(api).then((r) => r.json()).catch(() => null);
+            for (const page of Object.values(data?.query?.pages || {})) {
+              const info = page.imageinfo?.[0]; if (!info || !/image\/(jpeg|png)/.test(info.mime) || info.width < 400) continue;
+              await addWeb(info.thumburl || info.url, `Wikimedia Commons · ${page.title.replace(/^File:/, '')}`, info.extmetadata?.ImageDescription?.value);
+              if (out.length >= 5) break;
+            }
+            if (out.length >= 5) break;
+          }
+        }
+        out.note += found ? ` · ${sources.join(' + ')}: ${found} Treffer, ${out.length} ladbar` : ` · ${sources.join(' + ')}: keine Treffer`;
+      } catch (error) { out.note += ` · Websuche fehlgeschlagen (${error.message})`; }
+    } else if (!out.length) out.note += ' · Websuche ausgeschaltet';
     return out;
   }
 
@@ -643,9 +666,10 @@
 
     async function send(onlyQuestion) {
       const text = answerEl.value.trim();
-      if (!text || busy) return;
+      if (busy) return;
+      if (!text) { toast(onlyQuestion ? 'Rückfrage zuerst eintippen oder sprechen, dann RÜCKFRAGE drücken.' : 'Antwort eintippen oder sprechen.'); answerEl.focus(); return; }
       busy = true; sendBtn.disabled = true; askBtn.disabled = true;
-      addMsg('candidate', text); answerEl.value = '';
+      addMsg('candidate', onlyQuestion ? `Rückfrage: ${text}` : text); answerEl.value = '';
       session.messages.push({ role: 'user', content: text });
       const i = session.station;
       if (!onlyQuestion) session.followup += 1;
@@ -1260,7 +1284,9 @@
           <div class="field"><span class="label">Nachfragen pro Station</span><select id="s-followups">${opt([['0', '0 · nur Eröffnungsfragen'], ['1', '1 · 10 Fragen pro Fall'], ['2', '2 · 15 Fragen'], ['3', '3 · 20 Fragen']], String(s.followups))}</select></div>
           <div class="field"><span class="label">Bilder</span>
             <label class="check"><input type="checkbox" id="s-images" ${s.images ? 'checked' : ''}> Bilder aus den Präsentationen in Prüfung und Abfrage</label>
-            <label class="check"><input type="checkbox" id="s-web" ${s.webImages ? 'checked' : ''}> Wikimedia Commons, wenn kein eigenes Bild passt</label></div>
+            <label class="check"><input type="checkbox" id="s-web" ${s.webImages ? 'checked' : ''}> Websuche (Google Bilder, Wikimedia Commons), wenn kein eigenes Bild passt</label>
+            <div class="row" style="margin-top:6px"><input type="password" id="s-gkey" value="${esc(s.googleKey)}" placeholder="Google API-Key (optional)" style="max-width:260px"><input type="text" id="s-gcx" value="${esc(s.googleCx)}" placeholder="Suchmaschinen-ID (cx)" style="max-width:220px"></div>
+            <span class="hint">Google Bildsuche: programmablesearchengine.google.com → neue Suchmaschine, «Gesamtes Web» und Bildsuche an → ID kopieren; API-Key unter console.cloud.google.com (Custom Search JSON API, 100 Anfragen/Tag gratis). Ohne Key nur Commons.</span></div>
           <div class="field"><span class="label">Tagesziel</span><input type="number" id="s-goal" value="${s.dailyGoal}" min="5" max="500" style="max-width:120px"></div>
           <div class="field"><span class="label">Zusätzliche Anweisung an den Prüfer</span><textarea id="s-custom" placeholder="z. B. Frag besonders nach Zugängen und Implantaten.">${esc(s.custom)}</textarea></div>
         </div>
@@ -1269,7 +1295,7 @@
     const read = () => {
       s.apiKey = $('#s-key').value.trim(); s.model = $('#s-model').value.trim() || 'auto'; s.effort = $('#s-effort').value; s.transcribeModel = $('#s-stt').value.trim() || 'gpt-4o-transcribe';
       s.ttsModel = $('#s-tts').value.trim() || 'gpt-4o-mini-tts'; s.ttsVoice = $('#s-voice').value; s.examinerVoice = $('#s-voice-on').checked; s.lang = $('#s-lang').value; s.strictness = $('#s-strict').value;
-      s.followups = Number($('#s-followups').value); s.dailyGoal = Number($('#s-goal').value) || 30; s.custom = $('#s-custom').value.trim(); s.images = $('#s-images').checked; s.webImages = $('#s-web').checked;
+      s.followups = Number($('#s-followups').value); s.dailyGoal = Number($('#s-goal').value) || 30; s.custom = $('#s-custom').value.trim(); s.images = $('#s-images').checked; s.webImages = $('#s-web').checked; s.googleKey = $('#s-gkey').value.trim(); s.googleCx = $('#s-gcx').value.trim();
     };
     $('#s-save').onclick = async () => {
       read();

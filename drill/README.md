@@ -69,8 +69,10 @@ activity, export/import.
   classification schemas, anatomy), labelled by kind and mapped to cases. In PRÜFUNG the
   examiner gets the radiographs of the case and builds the dossier on one of them only if it
   judges the image a clear, unlabelled match; otherwise the case runs on a text description.
-  With no own image, it can search Wikimedia Commons (toggle in settings) under the same
-  rule. In ABFRAGE/LAZY every image is also a drill item ("Befunden Sie das Bild"), graded
+  With no own image, it searches the web under the same rule: Google Images if you add a free
+  Custom Search key and engine id in settings (100 queries/day), Wikimedia Commons always.
+  Remote images are downloaded through server.py (`/api/fetch`), since browsers cannot fetch
+  cross-origin images themselves. In ABFRAGE/LAZY every image is also a drill item ("Befunden Sie das Bild"), graded
   by the vision model. Images from PPTX files you dump are extracted the same way.
 - `data/bank/*.js` — 256 hand-written seed items by region. Edit freely: one line per
   item `[type, topic, question, answer]`. Items are identified by their question text, so

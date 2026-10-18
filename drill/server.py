@@ -23,6 +23,7 @@ import shutil
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 from datetime import date
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -158,9 +159,38 @@ class Handler(SimpleHTTPRequestHandler):
                 if path == '/api/files':
                     folder = os.path.join(DATA, 'files')
                     return self.send_json(sorted(os.listdir(folder)) if os.path.isdir(folder) else [])
+            if path == '/api/fetch':
+                return self.fetch_image((query.get('url') or [''])[0])
             self.send_json({'error': 'not found'}, 404)
         except Exception as error:  # noqa: BLE001 - report anything to the UI
             self.send_json({'error': str(error)}, 500)
+
+    def fetch_image(self, url):
+        """Download a remote image for the browser (browsers may not fetch cross-origin images themselves)."""
+        if not re.match(r'^https?://', url):
+            return self.send_json({'error': 'bad url'}, 400)
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (FMH DRILL; local study tool)', 'Accept': 'image/*,*/*;q=0.8'})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                ctype = resp.headers.get('Content-Type', 'application/octet-stream').split(';')[0].strip()
+                data = resp.read(15 * 1024 * 1024 + 1)
+            if len(data) > 15 * 1024 * 1024:
+                return self.send_json({'error': 'too large'}, 413)
+            if not ctype.startswith('image/'):
+                if data[:3] == b'\xff\xd8\xff':
+                    ctype = 'image/jpeg'
+                elif data[:8] == b'\x89PNG\r\n\x1a\n':
+                    ctype = 'image/png'
+                else:
+                    return self.send_json({'error': f'not an image ({ctype})'}, 415)
+            self.send_response(200)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'private, max-age=86400')
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as error:  # noqa: BLE001
+            self.send_json({'error': str(error)}, 502)
 
     # ---- PUT / POST ------------------------------------------------------
     def do_PUT(self):

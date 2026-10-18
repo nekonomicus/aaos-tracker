@@ -364,7 +364,7 @@ ${cases.map((c) => `${c.id} · ${c.title}`).join('\n')}`;
   }
 
   function commonsQueryPrompt(caseItem) {
-    return `Nenne 2 kurze englische Suchbegriffe für Wikimedia Commons, um ein Röntgen-, CT- oder MRI-Bild zu finden, das typisch für diesen Prüfungsfall ist (z. B. "Garden IV femoral neck fracture X-ray"). Thema: ${caseItem.title} (${caseItem.region}). Antworte als JSON {"queries": ["...", "..."]}.`;
+    return `Nenne 3 kurze englische Bildsuch-Anfragen (Google Bilder / Wikimedia Commons), um ein echtes Röntgen-, CT- oder MRI-Bild zu finden, das typisch für diesen Prüfungsfall ist, ohne Lehrbuchgrafik und ohne eingezeichnete Lösung (z. B. "posterior sternoclavicular dislocation CT axial", "Garden IV femoral neck fracture radiograph"). Thema: ${caseItem.title} (${caseItem.region}). Antworte als JSON {"queries": ["...", "...", "..."]}.`;
   }
 
   const COMMONS_SCHEMA = { type: 'object', additionalProperties: false, required: ['queries'], properties: { queries: { type: 'array', items: { type: 'string' } } } };
