@@ -250,6 +250,13 @@
   const say = (text) => { if (!text) return; if (state.settings.apiKey) speak(text); else readAloud(text); };
   const sayHtml = (text) => `<button class="say" type="button" data-say="${esc(text)}" title="Vorlesen">▶</button>`;
   document.addEventListener('click', (e) => { const b = e.target.closest('[data-say]'); if (b) { e.preventDefault(); say(b.dataset.say); } });
+  // VORLESEN AN/AUS: the examiner reads his lines automatically (text modes); one setting, a toggle in every mode
+  function readToggle(id) {
+    const b = document.createElement('button'); b.className = 'btn small ghost read-toggle'; b.type = 'button'; b.title = 'Prüfer liest seine Fragen und Antworten automatisch vor'; if (id) b.id = id;
+    const paint = () => { b.textContent = `VORLESEN ${state.settings.examinerVoice ? 'AN' : 'AUS'}`; b.classList.toggle('on', !!state.settings.examinerVoice); };
+    b.onclick = () => { state.settings.examinerVoice = !state.settings.examinerVoice; Store.saveState(); paint(); if (!state.settings.examinerVoice) { if (currentAudio) currentAudio.pause(); window.speechSynthesis?.cancel(); } };
+    paint(); return b;
+  }
   function looksLikeQuestion(t) { const x = String(t || '').trim(); if (!x) return false; const words = x.split(/\s+/).length; return words <= 30 && (/\?\s*$/.test(x) || /^(wie|was|welche[rsn]?|gibt es|ist|sind|hat|haben|kann ich|darf ich|könnte ich|zeigt|wo|wann|liegt|besteht|how|what|which|is|are|does|do|can i|may i)\b/i.test(x)); }
   function mentions(said, text) { if (!said || !text) return false; const a = norm(said); const words = [...new Set(norm(text).split(' ').filter((w) => w.length > 3))]; const hit = words.filter((w) => a.includes(w)).length; return words.length > 0 && hit >= Math.ceil(words.length * 0.6); }
   async function transcribe(blob, ext) {
@@ -599,6 +606,7 @@
   // and it can look passages up in the candidate's sources through the "nachschlagen" tool.
   function attachLive(tools, { system, add, onTurn, history, greeting }) {
     if (!tools || !window.RealtimeVoice) return null;
+    let rebriefNote = null;
     const wrap = document.createElement('span'); wrap.className = 'live-wrap';
     wrap.innerHTML = '<button class="btn small live-toggle" type="button" title="Mit dem Prüfer sprechen (OpenAI Realtime)">● LIVE</button><button class="btn small ghost" type="button" hidden>STUMM</button><span class="live-status"></span>';
     tools.insertBefore(wrap, tools.querySelector('.spacer'));
@@ -622,8 +630,8 @@
         case 'conversation.item.input_audio_transcription.completed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); u.entry.content = (e.transcript || u.text || '').trim() || '(unverständlich)'; u.el.textContent = u.entry.content; onTurn(u.entry, false); break; }
         case 'conversation.item.input_audio_transcription.failed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); u.entry.content = '(Transkription fehlgeschlagen)'; u.el.textContent = u.entry.content; onTurn(u.entry, false); break; }
         case 'response.created': ex = null; exText = ''; break;
-        case 'response.output_audio_transcript.delta': { if (!ex) ex = add('examiner', ''); exText += e.delta || ''; ex.textContent = exText; break; }
-        case 'response.output_audio_transcript.done': { if (ex) { exText = (e.transcript || exText).trim(); ex.textContent = exText; } break; }
+        case 'response.output_audio_transcript.delta': case 'response.audio_transcript.delta': { if (!ex) ex = add('examiner', ''); exText += e.delta || ''; ex.textContent = exText; break; }
+        case 'response.output_audio_transcript.done': case 'response.audio_transcript.done': { if (ex) { exText = (e.transcript || exText).trim(); ex.textContent = exText; } break; }
         case 'response.done': { if (exText.trim()) onTurn({ role: 'assistant', content: exText.trim() }, true); ex = null; exText = ''; break; }
         case 'response.output_item.done': {
           const it = e.item; if (it?.type !== 'function_call' || it.name !== 'nachschlagen' || !voice) break;
@@ -638,9 +646,9 @@
       }
       return undefined;
     };
-    toggle.onclick = async () => {
-      if (voice) return stop();
-      if (!requireKey() || connecting) return;
+    // connect and brief the examiner; `note` replaces the standard greeting (e.g. a new focus)
+    const start = async (note) => {
+      if (voice || !requireKey() || connecting) return;
       connecting = true; render({});
       try {
         if (state.settings.realtimeModel === 'auto' && !state.settings.resolvedRealtimeModel) await resolveModel().catch(() => {});
@@ -650,15 +658,22 @@
         await v.connect(); voice = v;
         const past = (history ? history() : []).filter((m) => m.content).slice(-12);
         if (past.length) v.addText('system', `BISHERIGES GESPRÄCH (Text):\n${past.map((m) => `${m.role === 'assistant' ? 'PRÜFER' : 'KANDIDAT'}: ${m.content}`).join('\n').slice(-6000)}`);
-        if (greeting) { v.addText('system', `[SYSTEM] ${greeting}`); v.respond(); }
+        const hello = note || greeting; if (hello) { v.addText('system', `[SYSTEM] ${hello}`); v.respond(); }
       } catch (error) { voice = null; toast(`Live: ${error.message}`, true); }
       connecting = false; render(voice ? voice.state : {});
-      return undefined;
     };
+    // new briefing for a running call (topic changed): fresh instructions, one spoken acknowledgement
+    const rebrief = async (note) => {
+      if (!voice) return false;
+      voice.update({ instructions: `${await system()}\n\n${P.voiceTutor(state.settings)}` });
+      voice.addText('system', `[SYSTEM] ${note}`); voice.respond();
+      return true;
+    };
+    toggle.onclick = () => (voice ? stop() : start());
     mute.onclick = () => { if (voice) voice.mute(!voice.state.muted); };
     render({});
     const prev = currentCleanup; currentCleanup = () => { stop(); if (prev) prev(); };
-    return { stop };
+    return { stop, start, rebrief, on: () => !!voice };
   }
 
   // chat about a verdict or a feedback sheet; messages are kept in `holder.discussion`
@@ -672,6 +687,7 @@
     const add = (role, text) => { const div = document.createElement('div'); div.className = `msg ${role}`; div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER <button class="say" type="button" title="Vorlesen">▶</button>' : 'DU'}</div><div class="body"></div>`; const body = div.querySelector('.body'); body.textContent = text; const b = div.querySelector('.say'); if (b) b.onclick = () => say(body.textContent); chat.appendChild(div); return body; };
     for (const m of holder.discussion) add(m.role === 'assistant' ? 'examiner' : 'candidate', m.content);
     wireMic(container.querySelector('#d-mic'), ta);
+    container.querySelector('#d-mic').after(readToggle());
     const liveChat = attachLive(container.querySelector('.answer-tools'), {
       add,
       system: async () => { const passages = await lookup(sourceQuery, 4000, { k: 5 }).catch(() => ''); return P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab):\n<<<\n${passages}\n>>>` : ''); },
@@ -688,6 +704,7 @@
         const passages = await lookup(`${sourceQuery} ${text}`, 4000, { k: 5 }).catch(() => '');
         const full = await chatStream({ system: P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab; mit [Quelle: …] zitieren):\n<<<\n${passages}\n>>>` : ''), messages: holder.discussion.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; holder.discussion.push({ role: 'assistant', content: full });
+        if (state.settings.examinerVoice) speak(full.slice(0, 600));
         if (onChange) onChange();
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; holder.discussion.pop(); }
       busy = false; ta.focus(); body.scrollIntoView({ block: 'nearest' });
@@ -873,6 +890,7 @@
 
     const transcriptEl = $('#transcript'); const answerEl = $('#answer'); const sendBtn = $('#btn-send'); const askBtn = $('#btn-ask');
     wireMic($('#mic'), answerEl);
+    $('#live-status').after(readToggle('read-toggle'));
     answerEl.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendBtn.click(); } });
     $('#btn-abort').onclick = () => { if (confirm('Fall abbrechen? Es wird nichts gewertet.')) { live.stop(true); state.activeExam = null; session.status = 'abgebrochen'; Store.putSession(session); Store.saveState(); location.hash = '#exam'; } };
     $('#live-toggle').onclick = () => { if (live.on) live.stop(false); else if (session.dossier) live.start(true); else toast('Der Fall wird noch vorbereitet.'); };
@@ -962,6 +980,7 @@
         const t = $('#live-toggle'); if (!t) return;
         t.textContent = this.on ? 'LIVE AUS' : '● LIVE'; t.classList.toggle('on', this.on); t.disabled = this.connecting;
         const mic = $('#mic'); if (mic) mic.hidden = this.on || this.connecting;
+        const rt = $('#read-toggle'); if (rt) rt.hidden = this.on || this.connecting; // live: the examiner speaks anyway, LIVE AUS is the off switch
         const m = $('#live-mute'); if (m) { m.hidden = !this.on; m.textContent = st.muted ? 'MIKRO AN' : 'STUMM'; }
         const el = $('#live-status'); if (!el) return;
         el.textContent = this.connecting ? 'VERBINDE …' : !this.on ? '' : st.muted ? 'STUMM' : st.speaking ? 'PRÜFER SPRICHT' : st.listening ? 'HÖRT ZU' : st.responding ? '…' : 'BEREIT';
@@ -1010,11 +1029,11 @@
           }
           case 'conversation.item.input_audio_transcription.failed': { const u = this.users.get(e.item_id); if (u) { this.users.delete(e.item_id); u.text = '(Transkription fehlgeschlagen)'; this.show(u); } break; }
           case 'response.created': this.ex = null; this.exEntry = null; break;
-          case 'response.output_audio_transcript.delta': {
+          case 'response.output_audio_transcript.delta': case 'response.audio_transcript.delta': {
             if (!this.ex) { this.ex = addMsg('examiner', ''); this.exEntry = session.transcript[session.transcript.length - 1]; }
             this.exEntry.text += e.delta || ''; this.ex.textContent = this.exEntry.text; break;
           }
-          case 'response.output_audio_transcript.done': { if (this.exEntry) { this.exEntry.text = (e.transcript || this.exEntry.text).trim(); this.ex.textContent = this.exEntry.text; } break; }
+          case 'response.output_audio_transcript.done': case 'response.audio_transcript.done': { if (this.exEntry) { this.exEntry.text = (e.transcript || this.exEntry.text).trim(); this.ex.textContent = this.exEntry.text; } break; }
           case 'response.done': {
             const said = this.exEntry?.text || ''; this.ex = null; this.exEntry = null;
             const u = this.current; const pending = this.pending; this.current = null; this.pending = null;
@@ -1316,6 +1335,8 @@
         <div id="verdict"></div>`;
       const ta = $('#answer');
       wireMic($('#mic'), ta);
+      $('#mic').after(readToggle());
+      if (!sess.verdict && state.settings.examinerVoice) say(item.q);
       ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sess.verdict) $('#btn-send').click(); } });
       $('#btn-send').onclick = () => grade(item, ta.value.trim());
       $('#btn-skip').onclick = () => grade(item, '');
@@ -1368,7 +1389,7 @@
       };
       $('#btn-fix').onclick = () => { const s = stats(item.id); s.flag = !s.flag; state.items[item.id] = s; Store.saveState(); toast(s.flag ? 'Markiert · unter STATUS' : 'Markierung entfernt'); };
       liveChat = discussion($('#q-discuss'), `FRAGE: ${item.q}\nMUSTERANTWORT: ${v.modelAnswer}\nANTWORT DES KANDIDATEN: ${v.answer || '(keine)'}\nBEWERTUNG: ${score}/2 · ${v.urteil}${v.fehlend?.length ? ` · fehlt: ${v.fehlend.join(', ')}` : ''}`, v, save, `${item.topic || ''} ${item.q}`);
-      if (state.settings.readAloud) readAloud(v.modelAnswer);
+      if (state.settings.examinerVoice) say(v.modelAnswer);
     }
     function onKey(e) { if (sess.verdict && e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') { e.preventDefault(); next(); } }
     document.addEventListener('keydown', onKey);
@@ -1449,7 +1470,7 @@
     const caseOptions = ['', ...CASES.map((c) => c.id)].map((id) => `<option value="${id}">${id ? esc(`${id.toUpperCase()} · ${caseById(id).title}`) : 'Fall'}</option>`).join('');
     view.innerHTML = `
       ${hero('FREI', 'Frei')}
-      <div class="row" style="margin-bottom:12px"><select id="free-region" style="max-width:240px">${regionOptions}</select><select id="free-case" style="max-width:400px">${caseOptions}</select><button class="btn ghost small" id="free-reset">NEU</button></div>
+      <div class="row" style="margin-bottom:12px"><select id="free-region" style="max-width:240px">${regionOptions}</select><select id="free-case" style="max-width:400px">${caseOptions}</select><button class="btn primary" id="free-start" title="Prüfer auf das gewählte Thema einstellen und loslegen">START</button><button class="btn ghost small" id="free-reset">NEU</button></div>
       <div class="quick" id="quick">
         <span class="pill clickable" data-q="Frag mich 10 Klassifikationen aus dieser Region ab, eine nach der anderen.">10 KLASSIFIKATIONEN</span>
         <span class="pill clickable" data-q="Frag mich 10 Begriffe ab: 'Was ist ein/eine ...?' – eine Frage pro Zug.">10 BEGRIFFE</span>
@@ -1464,20 +1485,22 @@
       </div>`;
     const chat = $('#chat'); const ta = $('#answer'); let messages = []; let busy = false;
     wireMic($('#mic'), ta);
+    $('#mic').after(readToggle());
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); $('#btn-send').click(); } });
     $('#quick').onclick = (e) => { const p = e.target.closest('.pill'); if (p) { ta.value = p.dataset.q; ta.focus(); } };
     $('#free-reset').onclick = () => { messages = []; chat.innerHTML = ''; };
     // what the candidate picked: told to the examiner explicitly and used to anchor the retrieval
     async function freeContext(text) {
       const region = $('#free-region').value; const cid = $('#free-case').value; const c = cid ? caseById(cid) : null;
-      const focus = c ? `den Fall ${c.id.toUpperCase()} · ${c.title} (${c.region})` : region ? `die Region ${region}` : '';
+      const label = c ? `Fall ${c.id.toUpperCase()} · ${c.title} (${c.region})` : region ? `Region ${region}` : '';
+      const focus = c ? `den ${label}` : region ? `die ${label}` : '';
       let grounding = '';
       if (c) grounding = await groundingForCase(c, 12000, text);
       else if (region) grounding = await groundingForRegion(region, 9000, text);
       const anchor = c ? c.title : region;
       const passages = await lookup(`${anchor || ''} ${text}`, anchor ? 4000 : 9000, { k: 8, boost: c ? (x) => (x.caseId === c.id ? 1.6 : 1) : null }).catch(() => '');
       if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
-      return { system: P.freeSystem(state.settings, grounding, memoryFor(c, region || null), focus), focus };
+      return { system: P.freeSystem(state.settings, grounding, memoryFor(c, region || null), focus), focus, label };
     }
     function add(role, text) {
       const div = document.createElement('div'); div.className = `msg ${role}`;
@@ -1486,13 +1509,27 @@
       const b = div.querySelector('.say'); if (b) b.onclick = () => say(body.textContent);
       chat.appendChild(div); return body;
     }
-    attachLive($('.answer-tools'), {
+    const liveFree = attachLive($('.answer-tools'), {
       add,
       system: async () => (await freeContext('')).system,
       onTurn: (entry, fresh) => { if (fresh) messages.push(entry); },
       history: () => messages,
       greeting: 'Begrüsse den Kandidaten in einem kurzen Satz, nenne den gewählten Fokus, und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.',
     });
+    // START: brief the examiner on the chosen case or region and begin (re-briefs a running call, connects otherwise)
+    $('#free-start').onclick = async () => {
+      if (!requireKey()) return;
+      const b = $('#free-start'); b.disabled = true;
+      try {
+        const { label } = await freeContext('');
+        messages = []; chat.innerHTML = '';
+        const note = label ? `Neuer Fokus: ${label}. Sage das in einem Satz und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.` : 'Kein Fokus gewählt. Frage in einem Satz, welches Thema und was der Kandidat will.';
+        if (liveFree && liveFree.on()) await liveFree.rebrief(note);
+        else if (liveFree) await liveFree.start(note);
+        else add('examiner', label ? `Fokus: ${label}. Womit anfangen: Abfrage, Fall oder Erklärung?` : 'Welches Thema, und was möchten Sie: Abfrage, Fall oder Erklärung?');
+      } catch (error) { toast(error.message, true); }
+      b.disabled = false; ta.focus();
+    };
     $('#btn-send').onclick = async () => {
       const text = ta.value.trim(); if (!text || busy || !requireKey()) return;
       busy = true; ta.value = ''; add('candidate', text); messages.push({ role: 'user', content: text });
@@ -1839,7 +1876,7 @@
           <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['schnell', 'schnell'], ['ausgewogen', 'ausgewogen · Fall und Feedback gründlicher'], ['gründlich', 'gründlich · langsamer, teurer']], s.effort)}</select></div>
           <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"></div>
           <div class="field"><span class="label">Prüfer-Stimme</span><div class="row"><input type="text" id="s-tts" value="${esc(s.ttsModel)}" style="max-width:220px"><select id="s-voice" style="max-width:140px">${opt([['onyx', 'onyx'], ['alloy', 'alloy'], ['ash', 'ash'], ['echo', 'echo'], ['fable', 'fable'], ['nova', 'nova'], ['sage', 'sage'], ['shimmer', 'shimmer']], s.ttsVoice)}</select></div>
-            <label class="check"><input type="checkbox" id="s-voice-on" ${s.examinerVoice ? 'checked' : ''}> Prüfer liest seine Fragen vor (Textmodus; ▶ liest jederzeit auf Wunsch)</label></div>
+            <label class="check"><input type="checkbox" id="s-voice-on" ${s.examinerVoice ? 'checked' : ''}> Prüfer liest seine Fragen und Antworten vor (Textmodus; in jedem Modus per VORLESEN umschaltbar; ▶ liest jederzeit auf Wunsch)</label></div>
           <div class="field"><span class="label">Live-Prüfer · Gespräch in Echtzeit</span>
             <label class="check"><input type="checkbox" id="s-live" ${s.live ? 'checked' : ''}> Prüfung startet live: der Prüfer spricht und hört zu (OpenAI Realtime, WebRTC)</label>
             <div class="row"><input type="text" id="s-rt" value="${esc(s.realtimeModel)}" placeholder="auto" style="max-width:200px"><select id="s-rtvoice" style="max-width:130px">${opt([['cedar', 'cedar'], ['marin', 'marin'], ['ash', 'ash'], ['ballad', 'ballad'], ['coral', 'coral'], ['echo', 'echo'], ['sage', 'sage'], ['verse', 'verse'], ['alloy', 'alloy'], ['shimmer', 'shimmer']], s.realtimeVoice)}</select><select id="s-eager" style="max-width:230px">${opt([['low', 'Pausen lang · ausreden lassen'], ['medium', 'Pausen mittel'], ['high', 'Pausen kurz · schnell']], s.eagerness)}</select></div>

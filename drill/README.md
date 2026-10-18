@@ -52,7 +52,9 @@ transcript. ● LIVE in the answer box switches the call off and on (switching o
 spoken turns to the text examiner, switching on briefs the voice with what was said so far),
 STUMM mutes the microphone, typed answers are forwarded to the live examiner, ● SPRECHEN
 (record → gpt-4o-transcribe) and typing remain the text mode. ▶ next to the patient papers
-and to every examiner line reads it aloud on demand. Ends with a fixed feedback sheet from the
+and to every examiner line reads it aloud on demand; VORLESEN AN/AUS (one toggle in every
+text mode: PRÜFUNG, ABFRAGE, FREI, NACHFRAGEN) makes him read his questions and answers
+automatically, or not. Ends with a fixed feedback sheet from the
 strong chat model: grade 1–6 per station, overall grade, what was missing, model answer
 skeleton per station (≤ 70 words, the skeleton only), three sentences to memorise, and 3–5 new
 drill items generated from your gaps. Every run of the same case gets a different patient
@@ -69,10 +71,12 @@ presentation corpus.
 **LAZY** — same items, no typing, no API cost: read (or have it read aloud with the
 browser's own voice), Space reveals, 1/2/3 rates.
 
-**FREI** — free prompt with the same examiner persona, grounded on a region or a case. ● LIVE
-turns it into a spoken conversation: the examiner answers by voice, and whenever he is not sure
-of a number he looks it up in your sources through the `nachschlagen` tool before answering.
-Typed and spoken turns share one thread. The same ● LIVE button sits in every NACHFRAGEN box
+**FREI** — free prompt with the same examiner persona, grounded on a region or a case. Pick
+the case or region and press START: the examiner is briefed on exactly that focus (a running
+live call is re-briefed, otherwise the call is started) and asks what you want: Abfrage, Fall or
+Erklärung. ● LIVE turns it into a spoken conversation: the examiner answers by voice, and
+whenever he is not sure of a number he looks it up in your sources through the `nachschlagen`
+tool before answering. Typed and spoken turns share one thread. The same ● LIVE button sits in every NACHFRAGEN box
 (after each quiz verdict and after each feedback sheet), so you can always talk to the examiner
 about what he just graded.
 
