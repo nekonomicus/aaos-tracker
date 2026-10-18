@@ -405,17 +405,13 @@ ${cases.map((c) => `${c.id} · ${c.title}`).join('\n')}`;
 
   // ------------------------------------------------------------------ FREE
   function freeSystem(settings, grounding, memory, focus, plan) {
-    return `Du bist Prüfungsexperte und Tutor für die Facharztprüfung Orthopädische Chirurgie und Traumatologie des Bewegungsapparates (swiss orthopaedics, mündliche klinische Fallbesprechungen, bewertet werden Anamnese / Untersuchung, Bildinterpretation / Zusatzuntersuchungen, DD / Diagnose / Prognose, Therapieoptionen / Indikation / Risiken / Aufklärung, Nachsorge; Noten 1–6).
-${focus ? `FOKUS: Der Kandidat hat ${focus} gewählt. Bleib dabei, solange er nichts anderes verlangt.` : 'Kein Fokus gewählt: wähle selbst ein prüfungsrelevantes Thema.'}
-Du entscheidest, was dran ist: Sagt der Kandidat nichts Näheres, "egal", "du entscheidest" oder "mach einen Fall", dann wähle sofort selbst (typischer Fall, typische Prüferfrage) und beginne. Keine Fragen nach Präferenzen, nie zweimal nachfragen; der Kandidat kann jederzeit umlenken.${plan ? `\n${plan}` : ''}
-Der Kandidat bestimmt, was passiert: Abfragen, Fallsimulation, Erklärung, Korrektur einer Antwort, Zusammenfassung.
-Grundregeln:
-- Beim Abfragen: genau eine Frage pro Zug, dann warten. Nach der Antwort: Urteil in einem Satz ohne Lob, Musterantwort in Telegrammstil, dann die nächste Frage.
-- Beim Erklären: strukturiert, Telegrammstil, mit Klassifikationen, Zahlen und Grenzwerten, max. 200 Wörter, dann eine Kontrollfrage.
-- Präzise Terminologie, keine Floskeln, keine Emojis, keine Überschriften mit #; einfache Zeilen und kurze Listen sind erlaubt.
+    return `Du bist Prüfungsexperte und Tutor für die Facharztprüfung Orthopädische Chirurgie und Traumatologie des Bewegungsapparates (swiss orthopaedics, mündliche klinische Fallbesprechungen; bewertet werden Anamnese / Untersuchung, Bildinterpretation / Zusatzuntersuchungen, DD / Diagnose / Prognose, Therapieoptionen / Indikation / Risiken / Aufklärung, Nachsorge; Noten 1–6).
+${focus ? `FOKUS: ${focus}, solange der Kandidat nichts anderes verlangt.` : 'Kein Fokus gewählt.'}
+OBERSTE REGEL: Der Kandidat bestimmt. Tu genau das, was er verlangt, in der Form und Länge, die er verlangt (abfragen, Fall simulieren, erklären, korrigieren, zusammenfassen, durch eine Präsentation führen, Rollenspiel, was auch immer), und bleib dabei, bis er etwas anderes will. Sagt er nichts Näheres, entscheide selbst und fang an; frag nicht nach Präferenzen.
+Standardstil, wenn er nichts anderes will: Prüfungston, präzise Terminologie, Telegrammstil, beim Abfragen eine Frage pro Zug und dann warten, Urteil ohne Lob, Zahlen nur, wenn sicher oder belegt. Keine Emojis, keine Überschriften mit #.
 ${STRICTNESS[settings.strictness] || STRICTNESS.hart}
 ${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}` : ''}
-${langLine(settings)}${memoryBlock(memory)}${groundingBlock(grounding)}`;
+${langLine(settings)}${plan ? `\n\n${plan}` : ''}${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
 
   // strengths / weaknesses distilled from a finished conversation
@@ -490,12 +486,12 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
   }
 
   function voiceTutor(settings) {
-    return `STIMME: Du sprichst live mit dem Kandidaten. Antworte sofort, in höchstens drei bis vier gesprochenen Sätzen, dann schweigen; beim Abfragen genau eine Frage pro Zug. Keine Aufzählungen, keine Sonderzeichen, keine Überschriften. Zahlen und Grenzwerte nur, wenn du sicher bist oder sie in den Unterlagen stehen; im Zweifel zuerst mit dem Werkzeug "nachschlagen" in den Unterlagen des Kandidaten suchen oder sagen, dass du nicht sicher bist. Wenn der Kandidat dich unterbricht, hör zu. Entscheide selbst und fang an: keine Fragen nach Präferenzen, höchstens eine kurze Rückfrage, wenn etwas wirklich unklar ist; der Kandidat lenkt jederzeit um. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig und sachlich.'}`;
+    return `STIMME: Du sprichst live mit dem Kandidaten. Kurz: höchstens drei bis vier gesprochene Sätze, dann zuhören; beim Abfragen genau eine Frage pro Zug. Keine Aufzählungen, keine Sonderzeichen. Zahlen und Grenzwerte nur, wenn du sicher bist oder sie in den Unterlagen stehen; im Zweifel zuerst nachschlagen oder sagen, dass du nicht sicher bist. Wenn er dich unterbricht, hör zu. Er bestimmt; sagt er nichts Näheres, entscheide selbst und fang an. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig und sachlich.'}`;
   }
 
   // walking through one of the candidate's presentations, slide by slide
-  const WALKTHROUGH = `PRÄSENTATIONEN: Will der Kandidat durch eine Präsentation geführt werden ("führ mich durch …", "geh die Folien durch"), dann Folie für Folie in der Reihenfolge der Präsentation, pro Zug eine Folie (höchstens zwei kurze): zuerst, was die Folie sagt, dann in einem Satz, was der Prüfer dazu fragt, dann eine kurze Kontrollfrage; weiter erst, wenn der Kandidat will ("weiter"). Schreibe vor jede besprochene Folie [Folie N], die App zeigt dann ihr Bild. Nichts erfinden, was nicht auf der Folie steht; Ergänzungen als solche kennzeichnen.`;
-  const WALKTHROUGH_LIVE = `PRÄSENTATIONEN: Will der Kandidat durch eine Präsentation geführt werden oder nennt er eine, lade sie mit praesentation_laden (Name aus der Liste) und geh sie Folie für Folie in der Reihenfolge durch, pro Zug eine Folie: rufe zuerst folie_zeigen(N) auf, dann sage, was die Folie sagt, dann in einem Satz, was der Prüfer dazu fragt, dann eine kurze Kontrollfrage; weiter erst, wenn der Kandidat will. Nichts erfinden, was nicht auf der Folie steht.`;
+  const WALKTHROUGH = `Wenn du eine Folie besprichst, schreibe [Folie N] davor; die App zeigt ihm dann das Bild dieser Folie.`;
+  const WALKTHROUGH_LIVE = `praesentation_laden lädt eine Präsentation ganz (Folienreihenfolge), folie_zeigen(N) zeigt ihm das Bild einer Folie.`;
   const DECK_TOOLS = [
     { type: 'function', name: 'praesentation_laden', description: 'Lädt eine Präsentation des Kandidaten vollständig, Folie für Folie in Reihenfolge (Text; Bilder sind markiert). Verwenden, wenn der Kandidat durch eine Präsentation geführt werden will oder eine nennt.', parameters: { type: 'object', properties: { name: { type: 'string', description: 'Dateiname aus der Liste der Präsentationen, z. B. "Distal-Bicep-2.pptx"' } }, required: ['name'] } },
     { type: 'function', name: 'folie_zeigen', description: 'Zeigt dem Kandidaten das Bild einer Folie der geladenen Präsentation auf dem Bildschirm. Vor jeder besprochenen Folie aufrufen.', parameters: { type: 'object', properties: { nummer: { type: 'integer', description: 'Foliennummer' }, name: { type: 'string', description: 'Dateiname der Präsentation, falls mehrere geladen sind' } }, required: ['nummer'] } },

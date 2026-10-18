@@ -1662,8 +1662,8 @@
         const w = weaknessText(sel.region || null);
         focus = `das gezielte Abfragen seiner Schwächen${sel.region ? ` in der Region ${sel.region}` : ''}`;
         plan = w
-          ? `SCHWÄCHENPROFIL des Kandidaten (aus Abfragen, Fallprüfungen und früheren Gesprächen):\n${w}\nAUFTRAG: diese Punkte der Reihe nach abfragen, mit dem schwächsten beginnen, genau eine Frage pro Zug; nach jeder Antwort Urteil in einem Satz und Musterantwort in Telegrammstil, dann der nächste Punkt. Keine Fragen nach Präferenzen.`
-          : 'Noch kein Schwächenprofil vorhanden: frag quer durch die Regionen typische Prüfungsthemen ab, eine Frage pro Zug, um Schwächen zu finden.';
+          ? `SCHWÄCHENPROFIL des Kandidaten (aus Abfragen, Fallprüfungen und früheren Gesprächen), schwächste zuerst:\n${w}`
+          : 'Noch kein Schwächenprofil vorhanden: finde Schwächen durch Abfragen quer durch die Regionen.';
         grounding = sel.region ? await groundingForRegion(sel.region, 9000, w.slice(0, 300)) : await lookup(`${w.slice(0, 800)} ${text}`, 9000, { k: 10 }).catch(() => '');
       } else {
         if (sel.c) { focus = `den ${label}`; grounding = await groundingForCase(sel.c, 12000, text); }
@@ -1677,7 +1677,7 @@
       const found = detectDecks(text, sel); if (found.length) attachDecks(found);
       const attached = threadDecks();
       const deckPart = attached.length ? `${await deckBlock(attached)}\n${live ? P.WALKTHROUGH_LIVE : P.WALKTHROUGH}` : (live ? P.WALKTHROUGH_LIVE : P.WALKTHROUGH);
-      plan = `${plan ? `${plan}\n\n` : ''}UNTERLAGEN DES KANDIDATEN · PRÄSENTATIONEN (ganz abrufbar${live ? ' mit praesentation_laden' : ', wenn er eine nennt oder durchgehen will'}):\n${deckList()}\n\n${deckPart}`;
+      plan = `${plan ? `${plan}\n\n` : ''}UNTERLAGEN DES KANDIDATEN · PRÄSENTATIONEN:\n${deckList()}\n\n${deckPart}`;
       return { system: P.freeSystem(state.settings, grounding, memoryFor(sel.c, sel.region || null), focus, plan), label, sel };
     }
     function add(role, text) {
