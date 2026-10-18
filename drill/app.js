@@ -30,6 +30,7 @@
     apiKey: '', model: 'auto', resolvedModel: '', effort: 'ausgewogen', transcribeModel: 'gpt-4o-transcribe', ttsModel: 'gpt-4o-mini-tts', ttsVoice: 'onyx',
     examinerVoice: false, lang: 'de', strictness: 'hart', followups: 1, custom: '', dailyGoal: 30, readAloud: false, quizCount: 20, images: true, webImages: true, googleKey: '', googleCx: '',
     factCheck: true, githubToken: '', fmhRepo: 'nekonomicus/fmh-oral-files',
+    live: true, realtimeModel: 'auto', resolvedRealtimeModel: '', realtimeVoice: 'cedar', eagerness: 'low',
   };
   let state = { version: 2, settings: { ...DEFAULT_SETTINGS }, items: {}, caseLog: {}, daily: {}, lastFilters: {} };
   let customBank = [];
@@ -215,8 +216,41 @@
       }
       if (!state.settings.resolvedModel) state.settings.resolvedModel = 'gpt-5.1';
     }
+    state.settings.resolvedRealtimeModel = pickRealtime(ids) || state.settings.resolvedRealtimeModel;
     return ids;
   }
+  // newest full gpt-realtime of this key (2.1 › 2 › 1.5 › 1); never mini, whisper or dated duplicates
+  function pickRealtime(ids) {
+    const list = ids.map((id) => { const m = id.match(/^gpt-realtime(?:-(\d+(?:\.\d+)?))?(-\d{4}-\d{2}-\d{2})?$/); return m ? { id, v: Number(m[1] || 1), dated: m[2] ? 1 : 0 } : null; }).filter(Boolean);
+    list.sort((a, b) => b.v - a.v || a.dated - b.dated || a.id.length - b.id.length);
+    return list[0]?.id || '';
+  }
+  function realtimeModel() { const s = state.settings; return s.realtimeModel && s.realtimeModel !== 'auto' ? s.realtimeModel : (s.resolvedRealtimeModel || 'gpt-realtime'); }
+  // session config of the live examiner, shared by PRÜFUNG and the live chat (FREI, NACHFRAGEN)
+  function voiceSession({ instructions, tools = [], createResponse = false, maxTokens = 'inf', eagerness = null }) {
+    const s = state.settings; const model = realtimeModel();
+    const session = {
+      type: 'realtime', model, instructions, output_modalities: ['audio'],
+      audio: {
+        input: {
+          noise_reduction: { type: 'near_field' },
+          transcription: { model: s.transcribeModel || 'gpt-4o-transcribe', language: s.lang === 'en' ? 'en' : 'de', prompt: P.VOICE_TRANSCRIBE_PROMPT },
+          turn_detection: { type: 'semantic_vad', eagerness: eagerness || s.eagerness || 'low', create_response: !!createResponse, interrupt_response: true },
+        },
+        output: { voice: s.realtimeVoice || 'cedar', speed: 1 },
+      },
+      max_output_tokens: maxTokens, truncation: 'auto',
+    };
+    if (tools.length) { session.tools = tools; session.tool_choice = 'auto'; }
+    if (/^gpt-realtime-(?:[2-9]|\d{2})/.test(model)) session.reasoning = { effort: 'minimal' }; // reasoning models: answer, don't ponder
+    return session;
+  }
+  // read anything aloud on demand: the examiner's TTS voice with a key, the browser voice without
+  const say = (text) => { if (!text) return; if (state.settings.apiKey) speak(text); else readAloud(text); };
+  const sayHtml = (text) => `<button class="say" type="button" data-say="${esc(text)}" title="Vorlesen">▶</button>`;
+  document.addEventListener('click', (e) => { const b = e.target.closest('[data-say]'); if (b) { e.preventDefault(); say(b.dataset.say); } });
+  function looksLikeQuestion(t) { const x = String(t || '').trim(); if (!x) return false; const words = x.split(/\s+/).length; return words <= 30 && (/\?\s*$/.test(x) || /^(wie|was|welche[rsn]?|gibt es|ist|sind|hat|haben|kann ich|darf ich|könnte ich|zeigt|wo|wann|liegt|besteht|how|what|which|is|are|does|do|can i|may i)\b/i.test(x)); }
+  function mentions(said, text) { if (!said || !text) return false; const a = norm(said); const words = [...new Set(norm(text).split(' ').filter((w) => w.length > 3))]; const hit = words.filter((w) => a.includes(w)).length; return words.length > 0 && hit >= Math.ceil(words.length * 0.6); }
   async function transcribe(blob, ext) {
     const form = new FormData();
     form.append('file', blob, `antwort.${ext}`);
@@ -558,6 +592,71 @@
     return out;
   }
 
+  // ------------------------------------------------------------- live chat
+  // Talk to the examiner wherever there is a chat box (FREI, NACHFRAGEN after every verdict and
+  // feedback): same transport as the live exam, the model answers by itself after each utterance,
+  // and it can look passages up in the candidate's sources through the "nachschlagen" tool.
+  function attachLive(tools, { system, add, onTurn, history, greeting }) {
+    if (!tools || !window.RealtimeVoice) return null;
+    const wrap = document.createElement('span'); wrap.className = 'live-wrap';
+    wrap.innerHTML = '<button class="btn small live-toggle" type="button" title="Mit dem Prüfer sprechen (OpenAI Realtime)">● LIVE</button><button class="btn small ghost" type="button" hidden>STUMM</button><span class="live-status"></span>';
+    tools.insertBefore(wrap, tools.querySelector('.spacer'));
+    const [toggle, mute] = wrap.querySelectorAll('button'); const status = wrap.querySelector('.live-status');
+    let voice = null; let connecting = false; const users = new Map(); let ex = null; let exText = '';
+    const render = (st = {}) => {
+      const on = !!voice; toggle.textContent = on ? 'LIVE AUS' : '● LIVE'; toggle.classList.toggle('on', on); toggle.disabled = connecting;
+      mute.hidden = !on; mute.textContent = st.muted ? 'MIKRO AN' : 'STUMM';
+      status.textContent = connecting ? 'VERBINDE …' : !on ? '' : st.muted ? 'STUMM' : st.speaking ? 'PRÜFER SPRICHT' : st.listening ? 'HÖRT ZU' : st.responding ? '…' : 'BEREIT';
+      status.className = `live-status${st.speaking ? ' speaking' : st.listening ? ' listening' : ''}`;
+    };
+    const stop = () => { if (voice) { voice.close(); voice = null; } connecting = false; render({}); };
+    const onEvent = async (e) => {
+      switch (e.type) {
+        case 'conversation.item.added': case 'conversation.item.created': {
+          const it = e.item; if (!it || it.type !== 'message' || it.role !== 'user' || users.has(it.id) || !(it.content || []).some((c) => c.type === 'input_audio')) break;
+          users.set(it.id, { el: add('candidate', '…'), text: '' }); break;
+        }
+        case 'conversation.item.input_audio_transcription.delta': { const u = users.get(e.item_id); if (u) { u.text += e.delta || ''; u.el.textContent = u.text; } break; }
+        case 'conversation.item.input_audio_transcription.completed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); const text = (e.transcript || u.text || '').trim() || '(unverständlich)'; u.el.textContent = text; onTurn('user', text); break; }
+        case 'response.created': ex = null; exText = ''; break;
+        case 'response.output_audio_transcript.delta': { if (!ex) ex = add('examiner', ''); exText += e.delta || ''; ex.textContent = exText; break; }
+        case 'response.output_audio_transcript.done': { if (ex) { exText = (e.transcript || exText).trim(); ex.textContent = exText; } break; }
+        case 'response.done': { if (exText.trim()) onTurn('assistant', exText.trim()); ex = null; exText = ''; break; }
+        case 'response.output_item.done': {
+          const it = e.item; if (it?.type !== 'function_call' || it.name !== 'nachschlagen' || !voice) break;
+          let q = ''; try { q = JSON.parse(it.arguments || '{}').frage || ''; } catch { q = ''; }
+          const out = await lookup(q, 3500, { k: 5 }).catch(() => '');
+          voice.toolResult(it.call_id, out || 'Keine passenden Passagen in den Unterlagen.'); voice.respond();
+          break;
+        }
+        case 'error': if (e.error?.message && !/active response/i.test(e.error.message)) toast(`Live: ${e.error.message}`, true); break;
+        case 'fmh.disconnected': stop(); toast('Live-Verbindung unterbrochen', true); break;
+        default: break;
+      }
+    };
+    toggle.onclick = async () => {
+      if (voice) return stop();
+      if (!requireKey() || connecting) return;
+      connecting = true; render({});
+      try {
+        if (state.settings.realtimeModel === 'auto' && !state.settings.resolvedRealtimeModel) await resolveModel().catch(() => {});
+        const instructions = `${await system()}\n\n${P.voiceTutor(state.settings)}`;
+        const eagerness = state.settings.eagerness === 'low' ? 'medium' : state.settings.eagerness; // conversation: a bit quicker than the exam
+        const v = new RealtimeVoice({ apiKey: state.settings.apiKey, session: voiceSession({ instructions, tools: [P.LOOKUP_TOOL], createResponse: true, eagerness }), onEvent, onState: render });
+        await v.connect(); voice = v;
+        const past = (history ? history() : []).filter((m) => m.content).slice(-12);
+        if (past.length) v.addText('system', `BISHERIGES GESPRÄCH (Text):\n${past.map((m) => `${m.role === 'assistant' ? 'PRÜFER' : 'KANDIDAT'}: ${m.content}`).join('\n').slice(-6000)}`);
+        if (greeting) { v.addText('system', `[SYSTEM] ${greeting}`); v.respond(); }
+      } catch (error) { voice = null; toast(`Live: ${error.message}`, true); }
+      connecting = false; render(voice ? voice.state : {});
+      return undefined;
+    };
+    mute.onclick = () => { if (voice) voice.mute(!voice.state.muted); };
+    render({});
+    const prev = currentCleanup; currentCleanup = () => { stop(); if (prev) prev(); };
+    return { stop };
+  }
+
   // chat about a verdict or a feedback sheet; messages are kept in `holder.discussion`
   function discussion(container, contextText, holder, onChange, sourceQuery = '') {
     holder.discussion = holder.discussion || [];
@@ -566,9 +665,16 @@
       <textarea class="answer" id="d-input" style="min-height:70px" placeholder="Warum? Wie formuliere ich das besser? … ⌘/Ctrl+Enter sendet"></textarea>
       <div class="answer-tools"><button class="btn rec small" id="d-mic">● SPRECHEN</button><span class="spacer"></span><button class="btn small primary" id="d-send">SENDEN</button></div></details>`;
     const chat = container.querySelector('#d-chat'); const ta = container.querySelector('#d-input'); let busy = false;
-    const add = (role, text) => { const div = document.createElement('div'); div.className = `msg ${role}`; div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER' : 'DU'}</div><div class="body"></div>`; div.querySelector('.body').textContent = text; chat.appendChild(div); return div.querySelector('.body'); };
+    const add = (role, text) => { const div = document.createElement('div'); div.className = `msg ${role}`; div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER <button class="say" type="button" title="Vorlesen">▶</button>' : 'DU'}</div><div class="body"></div>`; const body = div.querySelector('.body'); body.textContent = text; const b = div.querySelector('.say'); if (b) b.onclick = () => say(body.textContent); chat.appendChild(div); return body; };
     for (const m of holder.discussion) add(m.role === 'assistant' ? 'examiner' : 'candidate', m.content);
     wireMic(container.querySelector('#d-mic'), ta);
+    attachLive(container.querySelector('.answer-tools'), {
+      add,
+      system: async () => { const passages = await lookup(sourceQuery, 4000, { k: 5 }).catch(() => ''); return P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab):\n<<<\n${passages}\n>>>` : ''); },
+      onTurn: (role, text) => { holder.discussion.push({ role, content: text }); if (onChange) onChange(); },
+      history: () => holder.discussion,
+      greeting: 'Sage in einem Satz, dass der Kandidat jetzt zur Bewertung nachfragen kann.',
+    });
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); container.querySelector('#d-send').click(); } });
     container.querySelector('#d-send').onclick = async () => {
       const text = ta.value.trim(); if (!text || busy || !requireKey()) return;
@@ -744,6 +850,9 @@
             <textarea class="answer" id="answer" placeholder="Antwort sprechen oder tippen · ⌘/Ctrl+Enter sendet"></textarea>
             <div class="answer-tools">
               <button class="btn rec" id="mic">● SPRECHEN</button>
+              <button class="btn small live-toggle" id="live-toggle" title="Prüfer spricht und hört zu (OpenAI Realtime)">● LIVE</button>
+              <button class="btn small ghost" id="live-mute" hidden>STUMM</button>
+              <span class="live-status" id="live-status"></span>
               <span class="spacer"></span>
               <button class="btn ghost" id="btn-ask" title="Befund erfragen, zählt nicht als Antwort">RÜCKFRAGE</button>
               <button class="btn primary" id="btn-send">ANTWORTEN</button>
@@ -760,9 +869,11 @@
     const transcriptEl = $('#transcript'); const answerEl = $('#answer'); const sendBtn = $('#btn-send'); const askBtn = $('#btn-ask');
     wireMic($('#mic'), answerEl);
     answerEl.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); sendBtn.click(); } });
-    $('#btn-abort').onclick = () => { if (confirm('Fall abbrechen? Es wird nichts gewertet.')) { state.activeExam = null; session.status = 'abgebrochen'; Store.putSession(session); Store.saveState(); location.hash = '#exam'; } };
+    $('#btn-abort').onclick = () => { if (confirm('Fall abbrechen? Es wird nichts gewertet.')) { live.stop(true); state.activeExam = null; session.status = 'abgebrochen'; Store.putSession(session); Store.saveState(); location.hash = '#exam'; } };
+    $('#live-toggle').onclick = () => { if (live.on) live.stop(false); else if (session.dossier) live.start(true); else toast('Der Fall wird noch vorbereitet.'); };
+    $('#live-mute').onclick = () => { if (live.voice) live.voice.mute(!live.voice.state.muted); };
     function showDossier(dossier, image) {
-      $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN</span><p>${esc(dossier.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span>${image ? `<div class="case-images"><img src="${esc(image.src)}" data-zoom alt=""></div><div class="img-credit">${esc(image.credit)}</div>` : ''}<p>${esc(dossier.bildgebung)}</p>${!image && session.imageNote ? `<div class="img-credit">Textbeschreibung statt Bild · ${esc(session.imageNote)}</div>` : ''}`;
+      $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN ${sayHtml(dossier.unterlagen)}</span><p>${esc(dossier.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span>${image ? `<div class="case-images"><img src="${esc(image.src)}" data-zoom alt=""></div><div class="img-credit">${esc(image.credit)}</div>` : ''}<p>${esc(dossier.bildgebung)}</p>${!image && session.imageNote ? `<div class="img-credit">Textbeschreibung statt Bild · ${esc(session.imageNote)}</div>` : ''}`;
     }
     async function resume() {
       session.system = session.system || P.examinerSystem(state.settings, caseItem, session.dossier, await groundingForCase(caseItem), memoryFor(caseItem));
@@ -773,15 +884,19 @@
       setStation(stationNow); session.followup = followupNow;
       startTimer(); answerEl.focus();
       toast('Fall fortgesetzt');
+      if (state.settings.live) live.start(true);
     }
 
     function addMsg(role, text, replay = false) {
       if (!replay) session.transcript.push({ role, text, t: Date.now() });
       const div = document.createElement('div'); div.className = `msg ${role}`;
-      div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER' : role === 'candidate' ? 'KANDIDAT' : 'SYSTEM'}</div><div class="body">${esc(text)}</div>`;
+      div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER <button class="say" type="button" title="Vorlesen">▶</button>' : role === 'candidate' ? 'KANDIDAT' : 'SYSTEM'}</div><div class="body">${esc(text)}</div>`;
+      const body = div.querySelector('.body');
+      const btn = div.querySelector('.say'); if (btn) btn.onclick = () => say(body.textContent);
       transcriptEl.appendChild(div);
       div.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      if (role === 'examiner' && state.settings.examinerVoice && !replay) speak(text);
+      if (role === 'examiner' && state.settings.examinerVoice && !replay && !live.on) speak(text);
+      return body;
     }
     function setStation(i) {
       session.station = i; session.followup = 0;
@@ -805,7 +920,107 @@
         el.classList.toggle('late', left < 0);
       }, 500);
     }
-    currentCleanup = () => { clearInterval(timerId); if (Recorder.active) Recorder.stop(); if (currentAudio) currentAudio.pause(); };
+    // Live examiner: the Realtime model speaks and listens over WebRTC. The exam protocol (stations,
+    // follow-ups, Rückfragen) is still driven here: every candidate turn gets one short control note
+    // before the examiner answers, the transcript is captured from both sides, and the grading at the
+    // end runs on the strong chat model exactly as in text mode.
+    const live = {
+      voice: null, on: false, connecting: false, pending: null, current: null, users: new Map(), ex: null, exEntry: null,
+      async start(resumed) {
+        if (this.on || this.connecting || !window.RealtimeVoice || !state.settings.apiKey) return false;
+        this.connecting = true; this.render({});
+        try {
+          if (state.settings.realtimeModel === 'auto' && !state.settings.resolvedRealtimeModel) await resolveModel().catch(() => {});
+          const instructions = `${session.system}\n\n${P.voiceExaminer(state.settings)}`;
+          this.voice = new RealtimeVoice({ apiKey: state.settings.apiKey, session: voiceSession({ instructions, maxTokens: 700 }), onEvent: (e) => this.onEvent(e), onState: (st) => this.render(st) });
+          await this.voice.connect();
+        } catch (error) {
+          this.connecting = false; this.voice = null; this.render({});
+          toast(`Live-Prüfer nicht verbunden (${error.message}) · weiter per Text / ● SPRECHEN`, true);
+          return false;
+        }
+        this.connecting = false; this.on = true; this.users.clear(); this.pending = null; this.render(this.voice.state);
+        setStation(session.station);
+        const spoken = session.transcript.filter((m) => m.role !== 'system');
+        if (resumed && spoken.length) this.voice.addText('system', `BISHERIGER VERLAUF DIESER PRÜFUNG (die zuletzt gestellte Frage gilt weiter):\n${spoken.map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n').slice(-6000)}`);
+        this.voice.addText('system', P.voiceOpen(session.station, resumed && spoken.length > 0));
+        this.voice.respond();
+        return true;
+      },
+      stop(final) {
+        if (this.voice) { this.voice.close(); this.voice = null; }
+        const was = this.on; this.on = false; this.connecting = false; this.pending = null; this.current = null; this.render({});
+        // back to text mode: the chat model gets the spoken turns as its history
+        if (was && !final && session.status === 'laufend') session.messages = session.transcript.filter((m) => m.role !== 'system').map((m) => (m.role === 'examiner' ? { role: 'assistant', content: JSON.stringify({ reaktion: '', frage: m.text }) } : { role: 'user', content: m.text.replace(/^Rückfrage: /, '') }));
+      },
+      render(st = {}) {
+        const t = $('#live-toggle'); if (!t) return;
+        t.textContent = this.on ? 'LIVE AUS' : '● LIVE'; t.classList.toggle('on', this.on); t.disabled = this.connecting;
+        const mic = $('#mic'); if (mic) mic.hidden = this.on || this.connecting;
+        const m = $('#live-mute'); if (m) { m.hidden = !this.on; m.textContent = st.muted ? 'MIKRO AN' : 'STUMM'; }
+        const el = $('#live-status'); if (!el) return;
+        el.textContent = this.connecting ? 'VERBINDE …' : !this.on ? '' : st.muted ? 'STUMM' : st.speaking ? 'PRÜFER SPRICHT' : st.listening ? 'HÖRT ZU' : st.responding ? '…' : 'BEREIT';
+        el.className = `live-status${st.speaking ? ' speaking' : st.listening ? ' listening' : ''}`;
+      },
+      // A candidate turn: spoken (text arrives with the transcript) or typed. Rückfragen (questions to the examiner)
+      // do not count as answers. A turn can be uncounted exactly once, by the transcript or by the examiner's own
+      // reaction (he stayed on the station), so the order in which those two arrive does not matter.
+      show(u) { u.entry.text = (u.question ? 'Rückfrage: ' : '') + (u.text || '…'); u.el.textContent = u.entry.text; },
+      uncount(u) { if (u.counted) { u.counted = false; session.followup = Math.max(0, session.followup - 1); } u.question = true; this.show(u); },
+      newTurn(text, question) { const el = addMsg('candidate', ''); const u = { el, entry: session.transcript[session.transcript.length - 1], text, question: !!question, counted: false, done: false }; this.show(u); return u; },
+      async turn(u) {
+        const i = session.station; const isLast = i === P.STATIONS.length - 1;
+        if (!u.question) { session.followup += 1; u.counted = true; }
+        const exhausted = u.counted && session.followup > followupsTotal;
+        const lastQ = [...session.transcript].reverse().find((m) => m.role === 'examiner')?.text || '';
+        const passages = await lookup(`${caseItem.title} ${P.STATIONS[i].label} ${lastQ} ${u.text || ''}`, 2500, { k: 3 }).catch(() => '');
+        const control = u.question
+          ? `[SYSTEM · STATION ${i + 1}/5] Der Kandidat hat eine Rückfrage gestellt: in einem Satz aus dem Dossier beantworten, dann die offene Frage wiederholen.`
+          : P.voiceTurn(i, Math.min(session.followup, followupsTotal), followupsTotal, exhausted, isLast, passages);
+        this.pending = exhausted ? (isLast ? 'finish' : 'next') : null; this.current = u;
+        if (!this.voice) return;
+        this.voice.addText('system', control); this.voice.respond();
+        Store.putSession(session);
+      },
+      typed(text, onlyQuestion) { const u = this.newTurn(text, onlyQuestion); if (this.voice) this.voice.addText('user', text); this.turn(u); },
+      onEvent(e) {
+        switch (e.type) {
+          case 'conversation.item.added': case 'conversation.item.created': {
+            const it = e.item; if (!it || it.type !== 'message' || it.role !== 'user' || this.users.has(it.id)) break;
+            if (!(it.content || []).some((c) => c.type === 'input_audio')) break;
+            const u = this.newTurn('', false); this.users.set(it.id, u); this.turn(u);
+            break;
+          }
+          case 'conversation.item.input_audio_transcription.delta': { const u = this.users.get(e.item_id); if (u) { u.text += e.delta || ''; this.show(u); } break; }
+          case 'conversation.item.input_audio_transcription.completed': {
+            const u = this.users.get(e.item_id); if (!u) break; this.users.delete(e.item_id);
+            u.text = (e.transcript || u.text || '').trim() || '(unverständlich)';
+            if (!u.done && looksLikeQuestion(u.text)) this.uncount(u); else this.show(u);
+            Store.putSession(session); break;
+          }
+          case 'conversation.item.input_audio_transcription.failed': { const u = this.users.get(e.item_id); if (u) { this.users.delete(e.item_id); u.text = '(Transkription fehlgeschlagen)'; this.show(u); } break; }
+          case 'response.created': this.ex = null; this.exEntry = null; break;
+          case 'response.output_audio_transcript.delta': {
+            if (!this.ex) { this.ex = addMsg('examiner', ''); this.exEntry = session.transcript[session.transcript.length - 1]; }
+            this.exEntry.text += e.delta || ''; this.ex.textContent = this.exEntry.text; break;
+          }
+          case 'response.output_audio_transcript.done': { if (this.exEntry) { this.exEntry.text = (e.transcript || this.exEntry.text).trim(); this.ex.textContent = this.exEntry.text; } break; }
+          case 'response.done': {
+            const said = this.exEntry?.text || ''; this.ex = null; this.exEntry = null;
+            const u = this.current; const pending = this.pending; this.current = null; this.pending = null;
+            if (u) u.done = true;
+            if (pending === 'next' && mentions(said, P.STATIONS[session.station + 1]?.opener)) setStation(session.station + 1);
+            else if (pending === 'finish' && /beendet|vielen dank|concluded|thank you/i.test(said)) { Store.putSession(session); finish(); return; }
+            else if (pending && u) this.uncount(u); // the examiner stayed on the station (Rückfrage, or he ignored the cue): this turn did not count
+            Store.putSession(session); break;
+          }
+          case 'error': if (e.error?.message && !/active response/i.test(e.error.message)) toast(`Live: ${e.error.message}`, true); break;
+          case 'fmh.disconnected': this.stop(false); toast('Live-Verbindung unterbrochen · ● LIVE verbindet neu', true); break;
+          default: break;
+        }
+      },
+    };
+    currentCleanup = () => { clearInterval(timerId); live.stop(true); if (Recorder.active) Recorder.stop(); if (currentAudio) currentAudio.pause(); };
 
     async function begin() {
       if (!requireKey()) return;
@@ -875,10 +1090,10 @@
         showDossier(dossier, session.image);
         $('#answer-box').hidden = false;
         startTimer();
-        openStation(0);
-        answerEl.focus();
         state.activeExam = { id: session.id, caseId }; clearTimeout(Store._timer); Store.flush();
         Store.putSession(session);
+        if (!(state.settings.live && await live.start(false))) openStation(0);
+        answerEl.focus();
       } catch (error) {
         $('#dossier').innerHTML = `<p class="warn">Fall konnte nicht erstellt werden: ${esc(error.message)}</p><button class="btn" onclick="location.reload()">NOCHMALS</button>`;
       }
@@ -888,6 +1103,7 @@
       const text = answerEl.value.trim();
       if (busy) return;
       if (!text) { toast(onlyQuestion ? 'Rückfrage zuerst eintippen oder sprechen, dann RÜCKFRAGE drücken.' : 'Antwort eintippen oder sprechen.'); answerEl.focus(); return; }
+      if (live.on) { answerEl.value = ''; live.typed(text, onlyQuestion); return; }
       busy = true; sendBtn.disabled = true; askBtn.disabled = true;
       addMsg('candidate', onlyQuestion ? `Rückfrage: ${text}` : text); answerEl.value = '';
       session.messages.push({ role: 'user', content: text });
@@ -926,6 +1142,7 @@
 
     async function finish() {
       clearInterval(timerId);
+      live.stop(true);
       $('#answer-box').hidden = true;
       const thinking = document.createElement('div'); thinking.className = 'thinking'; thinking.innerHTML = '<span class="spinner"></span> &nbsp;BEWERTUNG'; transcriptEl.appendChild(thinking);
       const transcript = session.transcript.filter((m) => m.role !== 'system').map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n');
@@ -1073,7 +1290,7 @@
       stage.innerHTML = `
         <div class="quiz-head"><span class="meta">${sess.i + 1}/${sess.ids.length} · ${esc(item.region)}${s.seen ? ` · BOX ${s.box}` : ''}</span><span class="meta">${counts()}</span></div>
         <div class="meta">${esc(item.topic)}</div>
-        <div class="quiz-q">${esc(item.q)}</div>
+        <div class="quiz-q">${esc(item.q)} ${sayHtml(item.q)}</div>
         ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
         <div id="ask"><textarea class="answer" id="answer" placeholder="Antwort · Enter sendet, Shift+Enter neue Zeile"></textarea>
         <div class="answer-tools"><button class="btn rec" id="mic">● SPRECHEN</button><span class="spacer"></span><button class="btn ghost" id="btn-skip">WEISS ICH NICHT</button><button class="btn primary" id="btn-send">ANTWORTEN</button></div></div>
@@ -1112,7 +1329,7 @@
         <div class="verdict s${score}">
           <span class="label ${score === 2 ? 'ok' : score === 1 ? 'signal' : 'warn'}">${score === 2 ? 'KORREKT' : score === 1 ? 'TEILWEISE' : 'FALSCH'}</span>
           ${v.answer ? `<div class="judge" style="margin:0 0 10px">DU: ${esc(v.answer)}</div>` : ''}
-          <div class="model">${esc(v.modelAnswer)}</div>
+          <div class="model">${esc(v.modelAnswer)} ${sayHtml(v.modelAnswer)}</div>
           <div class="judge">${esc(v.urteil)}${v.fehlend?.length ? ` · fehlt: ${esc(v.fehlend.join(', '))}` : ''}</div>
           <div class="row" style="margin-top:14px"><button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button><button class="btn ghost small" id="btn-fact" title="Musterantwort gegen die Literatur prüfen">FAKTENCHECK</button><button class="btn ghost small" id="btn-fix" title="Musterantwort falsch oder unpassend">MELDEN</button></div>
           <div id="q-fact">${v.factcheck ? factBlock(v.factcheck) : ''}</div>
@@ -1175,7 +1392,7 @@
       stage.innerHTML = `
         <div class="quiz-head"><span class="meta">${sess.i + 1}/${sess.ids.length} · ${esc(item.region)}</span><span class="meta">${counts()}</span></div>
         <div class="meta">${esc(item.topic)}</div>
-        <div class="quiz-q">${esc(item.q)}</div>
+        <div class="quiz-q">${esc(item.q)} ${sayHtml(item.q)}</div>
         ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
         <div id="a"><button class="btn" id="btn-reveal">ANTWORT <span class="kbd">Space</span></button></div>`;
       $('#btn-reveal').onclick = reveal;
@@ -1233,9 +1450,22 @@
     $('#free-reset').onclick = () => { messages = []; chat.innerHTML = ''; };
     function add(role, text) {
       const div = document.createElement('div'); div.className = `msg ${role}`;
-      div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER' : 'DU'}</div><div class="body"></div>`;
-      div.querySelector('.body').textContent = text; chat.appendChild(div); return div.querySelector('.body');
+      div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER <button class="say" type="button" title="Vorlesen">▶</button>' : 'DU'}</div><div class="body"></div>`;
+      const body = div.querySelector('.body'); body.textContent = text;
+      const b = div.querySelector('.say'); if (b) b.onclick = () => say(body.textContent);
+      chat.appendChild(div); return body;
     }
+    attachLive($('.answer-tools'), {
+      add,
+      system: async () => {
+        const region = $('#free-region').value; const cid = $('#free-case').value; let grounding = '';
+        if (cid) grounding = await groundingForCase(caseById(cid), 9000); else if (region) grounding = await groundingForRegion(region, 7000);
+        return P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null));
+      },
+      onTurn: (role, text) => messages.push({ role, content: text }),
+      history: () => messages,
+      greeting: 'Begrüsse den Kandidaten in einem kurzen Satz und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.',
+    });
     $('#btn-send').onclick = async () => {
       const text = ta.value.trim(); if (!text || busy || !requireKey()) return;
       busy = true; ta.value = ''; add('candidate', text); messages.push({ role: 'user', content: text });
@@ -1587,7 +1817,11 @@
           <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['schnell', 'schnell'], ['ausgewogen', 'ausgewogen · Fall und Feedback gründlicher'], ['gründlich', 'gründlich · langsamer, teurer']], s.effort)}</select></div>
           <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"></div>
           <div class="field"><span class="label">Prüfer-Stimme</span><div class="row"><input type="text" id="s-tts" value="${esc(s.ttsModel)}" style="max-width:220px"><select id="s-voice" style="max-width:140px">${opt([['onyx', 'onyx'], ['alloy', 'alloy'], ['ash', 'ash'], ['echo', 'echo'], ['fable', 'fable'], ['nova', 'nova'], ['sage', 'sage'], ['shimmer', 'shimmer']], s.ttsVoice)}</select></div>
-            <label class="check"><input type="checkbox" id="s-voice-on" ${s.examinerVoice ? 'checked' : ''}> Prüfer liest seine Fragen vor</label></div>
+            <label class="check"><input type="checkbox" id="s-voice-on" ${s.examinerVoice ? 'checked' : ''}> Prüfer liest seine Fragen vor (Textmodus; ▶ liest jederzeit auf Wunsch)</label></div>
+          <div class="field"><span class="label">Live-Prüfer · Gespräch in Echtzeit</span>
+            <label class="check"><input type="checkbox" id="s-live" ${s.live ? 'checked' : ''}> Prüfung startet live: der Prüfer spricht und hört zu (OpenAI Realtime, WebRTC)</label>
+            <div class="row"><input type="text" id="s-rt" value="${esc(s.realtimeModel)}" placeholder="auto" style="max-width:200px"><select id="s-rtvoice" style="max-width:130px">${opt([['cedar', 'cedar'], ['marin', 'marin'], ['ash', 'ash'], ['ballad', 'ballad'], ['coral', 'coral'], ['echo', 'echo'], ['sage', 'sage'], ['verse', 'verse'], ['alloy', 'alloy'], ['shimmer', 'shimmer']], s.realtimeVoice)}</select><select id="s-eager" style="max-width:230px">${opt([['low', 'Pausen lang · ausreden lassen'], ['medium', 'Pausen mittel'], ['high', 'Pausen kurz · schnell']], s.eagerness)}</select></div>
+            <span class="hint">"auto" nimmt das neuste gpt-realtime deines Schlüssels${s.resolvedRealtimeModel ? ` · aktuell ${esc(s.resolvedRealtimeModel)}` : ''}. ● LIVE gibt es auch in FREI und bei NACHFRAGEN. Kopfhörer vermeiden Echo. Fall, Bewertung und Feedback laufen weiter über ${esc(activeModel())}.</span></div>
         </div>
         <div>
           <div class="field"><span class="label">Sprache</span><select id="s-lang">${opt([['de', 'Deutsch'], ['en', 'English']], s.lang)}</select></div>
@@ -1611,12 +1845,13 @@
       s.apiKey = $('#s-key').value.trim(); s.model = $('#s-model').value.trim() || 'auto'; s.effort = $('#s-effort').value; s.transcribeModel = $('#s-stt').value.trim() || 'gpt-4o-transcribe';
       s.ttsModel = $('#s-tts').value.trim() || 'gpt-4o-mini-tts'; s.ttsVoice = $('#s-voice').value; s.examinerVoice = $('#s-voice-on').checked; s.lang = $('#s-lang').value; s.strictness = $('#s-strict').value;
       s.followups = Number($('#s-followups').value); s.dailyGoal = Number($('#s-goal').value) || 30; s.custom = $('#s-custom').value.trim(); s.images = $('#s-images').checked; s.webImages = $('#s-web').checked; s.googleKey = $('#s-gkey').value.trim(); s.googleCx = $('#s-gcx').value.trim();
+      s.live = $('#s-live').checked; s.realtimeModel = $('#s-rt').value.trim() || 'auto'; s.realtimeVoice = $('#s-rtvoice').value; s.eagerness = $('#s-eager').value;
       s.factCheck = $('#s-fact').checked; s.githubToken = $('#s-gh').value.trim(); s.fmhRepo = /^[\w.-]+\/[\w.-]+$/.test($('#s-ghrepo').value.trim()) ? $('#s-ghrepo').value.trim() : 'nekonomicus/fmh-oral-files';
     };
     $('#s-save').onclick = async () => {
       read();
       if (s.apiKey) { try { const ids = await resolveModel(); $('#models').innerHTML = ids.filter((id) => /^(gpt|o[1-9])/.test(id)).sort().map((id) => `<option value="${id}">`).join(''); } catch (error) { toast(error.message, true); } }
-      await Store.flush(); toast(`Gespeichert · ${activeModel()}`); footer();
+      await Store.flush(); toast(`Gespeichert · ${activeModel()}${state.settings.live ? ` · live ${realtimeModel()}` : ''}`); footer();
     };
     $('#s-test').onclick = async () => {
       read(); await Store.flush(); $('#s-msg').innerHTML = '<span class="spinner"></span>';
@@ -1631,7 +1866,7 @@
   // ------------------------------------------------------------------ boot
   function footer() {
     $('#storage-note').textContent = serverOk ? 'USERDATA/ AUF DIESEM RECHNER' : 'BROWSER-SPEICHER · server.py starten für Dateien';
-    $('#model-note').textContent = state.settings.apiKey ? `${activeModel().toUpperCase()} · ${state.settings.strictness.toUpperCase()}` : 'KEIN API-SCHLÜSSEL · ⚙';
+    $('#model-note').textContent = state.settings.apiKey ? `${activeModel().toUpperCase()}${state.settings.live ? ` · LIVE ${realtimeModel().toUpperCase()}` : ''} · ${state.settings.strictness.toUpperCase()}` : 'KEIN API-SCHLÜSSEL · ⚙';
     $('#countdown').textContent = `21 NOV 2026 · T−${daysLeft()}`;
   }
   const VIEWS = { exam: renderExam, quiz: renderQuiz, lazy: renderLazy, free: renderFree, material: renderMaterial, status: renderStatus, settings: renderSettings };

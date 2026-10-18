@@ -70,18 +70,25 @@
   ];
 
   const GRADE_ANCHORS = `Notenskala (schweizerisch, 6 = beste Note, 1 = schlechteste):
-6 = vollständig, in der erwarteten Reihenfolge, präzise Terminologie, Klassifikation korrekt benannt UND auf den Fall angewendet, Zahlen und Grenzwerte genannt, Entscheidungen begründet. Wird selten vergeben.
-5 = gut: ein bis zwei kleinere Lücken, Struktur klar.
-4 = genügend: die Kernpunkte sind vorhanden, aber unvollständig, ungeordnet, ohne Klassifikation oder ohne Zahlen.
+6 = vollständig und in der erwarteten Reihenfolge, präzise Terminologie, die entscheidungsrelevante Klassifikation korrekt benannt UND auf den Fall angewendet, die Grenzwerte genannt, die die Entscheidung tragen, Entscheidung klar und begründet, sicher. Wird selten vergeben.
+5 = gut: ein bis zwei kleinere Lücken, Struktur klar, Entscheidung richtig.
+4 = genügend: Kernpunkte und Entscheidung vorhanden, aber unvollständig, ungeordnet oder ohne die entscheidungsrelevante Klassifikation.
 3 = ungenügend: wesentliche Lücken oder ein relevanter fachlicher Fehler.
 2 = grobe Fehler oder potentiell gefährliche Entscheidung.
 1 = keine brauchbare Antwort.`;
 
   const STRICTNESS = {
     mild: 'Benote wohlwollend: im Kern richtige, unvollständige Antworten bekommen eine 4–5.',
-    standard: 'Benote wie ein erfahrener Prüfer: 6 nur bei lückenloser, strukturierter Antwort; fehlende Klassifikation oder fehlende Zahlen kosten eine Note.',
-    hart: 'Benote streng und ohne Bonus für Bemühen: 6 praktisch nie; jede fehlende Klassifikation, jeder fehlende Grenzwert, jede falsche Zahl und jede Antwort ohne erkennbare Struktur kostet mindestens eine Note; Geschwafel, Hedging ("vielleicht", "man könnte") und Auflistungen ohne Entscheidung werden abgestraft; eine Antwort, die die Frage nicht trifft, zählt als nicht beantwortet.',
+    standard: 'Benote wie ein erfahrener Prüfer: 6 nur bei lückenloser, strukturierter Antwort; fehlende entscheidungsrelevante Klassifikation oder fehlender tragender Grenzwert kostet eine Note.',
+    hart: 'Benote streng und ohne Bonus für Bemühen: 6 praktisch nie; jede fehlende entscheidungsrelevante Klassifikation, jeder fehlende tragende Grenzwert, jede falsche Zahl und jede Antwort ohne erkennbare Struktur kostet mindestens eine Note; Geschwafel, Hedging ("vielleicht", "man könnte") und Auflistungen ohne Entscheidung werden abgestraft; eine Antwort, die die Frage nicht trifft, zählt als nicht beantwortet. Detailwissen ohne Grundgerüst gibt keinen Bonus.',
   };
+
+  // What a very good answer is, in this order. Used by the examiner, the dossier, the feedback and the quiz grader,
+  // so every part of the app pulls toward the same target: basic, structured, safe, Swiss, rock solid.
+  const PRINCIPLES = `MASSSTAB (Erstprinzipien vor Detail): Eine sehr gute Antwort ist kurz, geordnet und sicher: (1) Gefährliches zuerst erkannt oder ausgeschlossen (Notfall, Weichteile, Gefässe / Nerven, Kompartment, Infekt, Polytrauma), (2) Struktur in der erwarteten Reihenfolge, (3) das Standardvorgehen eines Schweizer Spitals mit einer klaren Entscheidung für diesen Patienten, (4) die eine entscheidungsrelevante Klassifikation mit ihrer Konsequenz, (5) die ein bis drei Grenzwerte, die die Entscheidung tragen, (6) Aufklärung und Nachsorge konkret. Raritäten, Studiennamen, lange Prozentlisten und Alternativklassifikationen geben keinen Bonus und ersetzen nichts davon; wer sie nennt, aber das Grundgerüst nicht hat, bleibt ungenügend.`;
+
+  // Swiss specifics an examiner expects where they fit the case (verified Oct 2026, see README).
+  const SWISS = `SCHWEIZ-STANDARD (erwarten, wo es zum Fall passt): perioperative Antibiotikaprophylaxe nach Swissnoso (Cefuroxim 1.5 g i.v., alternativ Cefazolin 2 g, 30–60 min vor Schnitt, Einmalgabe); Thromboseprophylaxe mit niedermolekularem Heparin ab Ruhigstellung oder Teilbelastung der unteren Extremität bis zur sicheren Vollbelastung, nach Hüft- und Knieprothese nach Hausstandard (z. B. Rivaroxaban, 5 bzw. 2 Wochen); Aufklärung mündlich und schriftlich, dokumentiert, mit Bedenkzeit vor Wahleingriffen, Inhalt: Diagnose, Optionen inkl. konservativ, Ablauf, typische Risiken, Nachbehandlung; Unfall = UVG: Unfallmeldung über den Arbeitgeber, Arbeitsunfähigkeitszeugnis in Prozent mit Dauer, SUVA / Unfallversicherer als Kostenträger, Kostengutsprache für Rehabilitation; Physiotherapie per Verordnung à 9 Sitzungen; Fahreignung: nicht fahren mit Gips / Orthese am Bremsbein oder unter Opiaten; Hausarzt für Wund- und Fadenkontrolle (Tag 12–14), Röntgenkontrollen typisch nach 6 und 12 Wochen; nach Fragilitätsfraktur Osteoporoseabklärung (DXA, Vitamin D, Bisphosphonat oder Denosumab, SVGO); Tetanusschutz bei offenen Wunden; Nikotinstopp wegen Heilungsstörung; Metallentfernung nicht routinemässig, nur bei Beschwerden.`;
 
   function langLine(settings) {
     return settings.lang === 'en'
@@ -116,12 +123,14 @@ ${grounding}
 DEIN VERHALTEN (unveränderlich):
 - Du prüfst, du lehrst nicht. Keine Erklärungen, kein Lob, keine Korrekturen, keine Musterantworten, keine Ermutigung.
 - Reaktionen: leer oder ein einziger kurzer Satz, nüchtern ("Weiter.", "Konkreter.", "Das beantwortet die Frage nicht.", "Zahl?", "Welcher Typ?"). Nie "gut", "richtig", "genau", "sehr schön".
-- Pro Zug genau EINE Frage. Die Frage trifft die schwächste Stelle der letzten Antwort: fehlende Klassifikation → Klassifikation und Typ für diesen Fall verlangen; Klassifikation genannt → Konsequenz des Typs für die Therapie verlangen; Begriff genannt → Definition verlangen; Verfahren genannt → Indikationskriterium, Zahl, Zugang oder AO-Prinzip (absolute vs. relative Stabilität) verlangen; Komplikation genannt → Häufigkeit und Vermeidung verlangen.
+- Pro Zug genau EINE Frage. Die Frage trifft die schwächste Stelle der letzten Antwort: fehlende Klassifikation → Klassifikation und Typ für diesen Fall verlangen; Klassifikation genannt → Konsequenz des Typs für die Therapie verlangen; Begriff genannt → Definition verlangen; Verfahren genannt → Indikationskriterium, tragenden Grenzwert, Zugang oder AO-Prinzip (absolute vs. relative Stabilität) verlangen; Komplikation genannt → Erkennung und Vermeidung verlangen. Zahlen nur verlangen, wenn sie die Entscheidung tragen (Grenzwert, Zeitfenster), keine Prozentabfragen zu Raritäten.
 - Unstrukturierte, ausschweifende oder ausweichende Antwort: unterbrechen und Struktur verlangen ("Bitte der Reihe nach: zuerst ..., dann ..." oder "Kürzer. Nur das Wesentliche.").
 - Hedging ohne Entscheidung ("man könnte", "je nachdem"): auf eine Entscheidung festnageln ("Was machen Sie bei diesem Patienten?").
 - Erfragt der Kandidat Befunde (Untersuchung, Labor, CT, Neurologie usw.), gib sie aus dem Dossier knapp und ohne Interpretation. Fehlen sie im Dossier, erfinde einen plausiblen, zum Fall passenden Befund und bleibe konsistent.
 - Nie Diagnose, Klassifikation oder Lösung verraten. Nie bestätigen, ob etwas richtig war.
 - Siezen. Keine Emojis, keine Aufzählungszeichen, keine Überschriften.
+${PRINCIPLES}
+${SWISS}
 ${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}` : ''}
 ${langLine(settings)}
 
@@ -138,14 +147,16 @@ ${previous.length ? `BEREITS GEPRÜFTE VARIANTEN (eine andere Konstellation wäh
 SCHWIERIGKEIT: ${difficulty}
 ${imageNotes}
 Regeln:
-- Realistischer Patient aus einem Schweizer Spital, konkrete Zahlen (Alter, Zeitpunkte, Vitalparameter wenn relevant), typischer Mechanismus, relevante Nebendiagnosen und Medikamente, Beruf und Anspruch.
-- "unterlagen": das, was der Kandidat auf Papier bekommt: Zuweisung, Hergang, Beschwerden, Vorgeschichte, Medikation, ggf. Vitalparameter. 4–7 Sätze. Keine Diagnose, keine Interpretation.
-- "bildgebung": welche Aufnahmen vorliegen (Modalität, Ebenen, Seite). Ohne Bild: zusätzlich eine rein beschreibende, radiologisch neutrale Beschreibung des Sichtbaren (Lokalisation, Morphologie, Dislokation, Gelenkbeteiligung, indirekte Zeichen), ohne Diagnose, Klassifikation oder Wertung, 3–6 Sätze. Mit Bild: nur Modalität, Ebenen, Seite, ein Satz; der Kandidat befundet das Bild selbst.
+- Realistisch und knapp: ein typischer Patient aus einem Schweizer Spital, so wie er in der Prüfung auf dem Blatt steht; typischer Mechanismus, die relevanten Nebendiagnosen und Medikamente, Beruf und Anspruch. Keine konstruierten Zusatzkomplexitäten; höchstens eine, und nur bei SCHWIERIGKEIT "Anspruchsvoll".
+- "unterlagen": das, was der Kandidat auf Papier bekommt, 3–5 Sätze wie eine echte Zuweisung oder Notfallanmeldung: Alter, Geschlecht, Beruf / Anspruch in einem Halbsatz; Hergang und Hauptbeschwerde; relevante Vorerkrankungen und Medikamente (inkl. Antikoagulation) in einem Satz. Keine Laborwerte, keine Vitalparameter (ausser Polytrauma / Schock), keine Diagnose, keine Interpretation.
+- "bildgebung": welche Aufnahmen vorliegen (Modalität, Ebenen, Seite). Ohne Bild: zusätzlich eine rein beschreibende, radiologisch neutrale Beschreibung des Sichtbaren (Lokalisation, Morphologie, Dislokation, Gelenkbeteiligung, indirekte Zeichen), ohne Diagnose, Klassifikation oder Wertung, 2–4 Sätze. Mit Bild: nur Modalität, Ebenen, Seite, ein Satz; der Kandidat befundet das Bild selbst.
 - "bild_geeignet": true nur, wenn eines der mitgelieferten Bilder eindeutig dieses Thema zeigt, als Prüfungsbild taugt (Modalität erkennbar, Befund sichtbar, keine Beschriftung, die die Diagnose verrät, keine Lehrbuchgrafik mit Lösung) und der Fall darauf aufgebaut werden kann; "bild_index" ist dann die 0-basierte Nummer des gewählten Bildes, sonst -1. Im Zweifel false. Wenn true, muss der gesamte Fall (Seite, Fraktur, Klassifikation, Implantate, Alter des Knochens) exakt zu diesem Bild passen.
 - "bild_befund": vollständiger radiologischer Befund des gewählten Bildes als Massstab für die Bewertung (leer, wenn kein Bild).
-- "verborgen": Befunde, die der Prüfer nur auf Nachfrage preisgibt: klinischer Untersuchungsbefund inkl. neurovaskulärem Status, Weichteile, Labor, Ergebnisse von CT / MRI / Stressaufnahmen, weitere Anamnesedetails.
-- "loesung": Diagnose exakt; Klassifikation mit Typ; pro Station 4–8 Stichpunkte, die ein sehr guter Kandidat nennt (inkl. Zahlen, Grenzwerten, Zugängen, Implantaten, Komplikationsraten); "drilldown": 6–10 Begriffe, Klassifikationen, Zahlen oder Konzepte, nach denen der Prüfer gezielt bohren soll.
-- Alles auf ${settings.lang === 'en' ? 'Englisch' : 'Deutsch'}.${memoryBlock(memory)}${groundingBlock(grounding)}`;
+- "verborgen": Befunde, die der Prüfer nur auf Nachfrage preisgibt, knapp (je 2–4 Sätze): klinischer Untersuchungsbefund inkl. neurovaskulärem Status und Weichteilen, Labor, Ergebnisse von CT / MRI / Stressaufnahmen, weitere Anamnesedetails.
+- "loesung": Diagnose exakt; die entscheidungsrelevante Klassifikation mit Typ; pro Station 3–5 Kernpunkte, die ein sicherer Kandidat nennt: Standardvorgehen, die Entscheidung für diesen Patienten, die ein bis drei tragenden Grenzwerte, Zugang / Implantat in einem Halbsatz, die wichtigsten Risiken beim Namen, Aufklärung und Nachsorge konkret (inkl. Schweiz-Standard, wo passend). Keine Raritäten, keine Prozentlisten. "drilldown": 4–6 Begriffe, Klassifikationen oder Grenzwerte, nach denen der Prüfer gezielt bohren soll.
+- Alles auf ${settings.lang === 'en' ? 'Englisch' : 'Deutsch'}.
+${PRINCIPLES}
+${SWISS}${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
 
   const DOSSIER_SCHEMA = {
@@ -202,14 +213,16 @@ Antworte als JSON: {"reaktion": "<leer oder max. 1 Satz; falls der Kandidat Befu
 
 ${GRADE_ANCHORS}
 ${STRICTNESS[settings.strictness] || STRICTNESS.hart}
-Massgeblich ist nicht maximale Detailtiefe, sondern: Struktur in der erwarteten Reihenfolge, Vollständigkeit der Kernpunkte, korrekte Klassifikation und Terminologie, Zahlen und Grenzwerte, begründete Entscheidungen, Sicherheit. Lösung im Dossier und die Auszüge aus den Unterlagen des Kandidaten sind der Massstab; wo seine Unterlagen präziser sind als das Dossier, gelten die Unterlagen.
+${PRINCIPLES}
+${SWISS}
+Massgeblich ist nicht maximale Detailtiefe, sondern: Struktur in der erwarteten Reihenfolge, Vollständigkeit der Kernpunkte, korrekte Klassifikation und Terminologie, die tragenden Grenzwerte, begründete Entscheidungen, Sicherheit. Lösung im Dossier und die Auszüge aus den Unterlagen des Kandidaten sind der Massstab; wo seine Unterlagen präziser sind als das Dossier, gelten die Unterlagen. Fehlende Raritäten oder Prozentzahlen sind keine Lücke.
 
 Gib zurück:
 - "noten": je Station 1–6 (ganze Zahlen), plus "struktur" (1–6: systematisch, in der erwarteten Reihenfolge, ohne Geschwafel?).
 - "note": Gesamtnote 1–6 mit einer Dezimale (Mittel der fünf Stationen; Struktur fliesst ein).
 - "fehlend": max. 6 konkrete Punkte, die gefehlt haben oder falsch waren, je max. 20 Wörter, konkret (welche Klassifikation, welche Zahl, welches Verfahren). Falsches zuerst.
 - "gut": max. 2 Punkte, nur wenn wirklich gut; sonst leer.
-- "musterantwort": pro Station das Gerüst einer 6er-Antwort in Telegrammstil, max. 80 Wörter, in der erwarteten Reihenfolge.
+- "musterantwort": pro Station das Gerüst einer 6er-Antwort in Telegrammstil, max. 70 Wörter, in der erwarteten Reihenfolge, nur das Grundgerüst (Entscheidung, Klassifikation mit Konsequenz, tragende Grenzwerte), so dass es in 20–30 Sekunden gesprochen werden kann.
 - "merksaetze": genau 3 Sätze zum Auswendiglernen, jeder mit einer harten Tatsache (Klassifikation, Zahl, Regel), abgeleitet aus den Lücken.
 - "drills": 3–5 Abfrage-Items aus den Lücken dieses Kandidaten: "typ" ∈ ${JSON.stringify(TYPES)}, "frage" (Prüferfrage), "antwort" (Musterantwort ≤ 50 Wörter), "thema".
 - "quellen": die Auszüge aus den Unterlagen, auf die du dich für Bewertung und Musterantwort gestützt hast, als Liste "Datei · Abschnitt" exakt wie in den [Quelle: …]-Marken (leer, wenn keine Auszüge vorlagen).
@@ -268,6 +281,7 @@ ${transcript}${groundingBlock(grounding)}`;
 Bewertung: 2 = alle wesentlichen Elemente der Musterantwort korrekt genannt (bei Klassifikationen: alle Typen in der richtigen Reihenfolge; bei Zahlen: der Wert mit Einheit), korrekte Terminologie, keine falschen Aussagen. 1 = Kern richtig, aber mindestens ein wesentliches Element fehlt oder ist unscharf. 0 = Hauptaussage falsch oder fehlend, oder eine gefährliche Falschaussage.
 ${STRICTNESS[settings.strictness] || STRICTNESS.hart}
 Die Antwort kann als Spracherkennung vorliegen: Tippfehler, Dialekt und Wortformen ignorieren, nur Inhalt zählt. Fachlich korrekte Synonyme und zusätzliche richtige Angaben akzeptieren.
+Massstab ist der Kern der Musterantwort: Entscheidung, Klassifikation mit Konsequenz, tragende Grenzwerte, Standardvorgehen. Zusätzliche Details der Musterantwort (Prozentzahlen, Raritäten, Alternativklassifikationen) sind für eine 2 kein Muss.
 Gib zurück: "score" (0/1/2), "urteil" (ein Satz, max. 15 Wörter, sachlich, was fehlte oder falsch war; bei 2 ein Wort: "Korrekt."), "fehlend" (fehlende Elemente als Stichworte, leer bei 2).
 ${langLine(settings)}`;
   }
@@ -310,7 +324,7 @@ ${langLine(settings)}`;
   // --------------------------------------------------------- ITEM GENERATION
   const ITEMS_RULES = `Regeln für Abfrage-Items:
 - Nur Dinge, nach denen ein Prüfer an der Facharztprüfung bohrt: Klassifikationen (vollständig mit allen Typen und deren therapeutischer Konsequenz), Terminologie ("Was ist ein ...?"), Grenzwerte und Zahlen (Winkel, mm, Prozent, Zeitfenster), AO-Grundprinzipien, Zugänge und Technikschritte, Anatomie mit klinischer Relevanz, Indikationskriterien, Komplikationen mit Häufigkeit.
-- Keine Trivia, keine Studien-Namen ohne Konsequenz, keine Fragen, deren Antwort "kommt drauf an" ist.
+- Keine Trivia, keine Studien-Namen ohne Konsequenz, keine Fragen, deren Antwort "kommt drauf an" ist. Erstprinzipien vor Detail: Standardvorgehen, Klassifikation mit Konsequenz, tragende Grenzwerte; keine Prozentlisten.
 - "frage": so formuliert, wie ein Prüfer sie mündlich stellt, kurz, eindeutig, eine Sache pro Frage.
 - "antwort": Musterantwort in Telegrammstil, max. 60 Wörter, bei Klassifikationen alle Typen in Reihenfolge, bei Zahlen die Zahl mit Einheit.
 - "typ" ∈ ${JSON.stringify(TYPES)}; "region" ∈ ${JSON.stringify(REGIONS)}; "thema": 1–4 Wörter (z. B. "Schenkelhalsfraktur").
@@ -425,7 +439,41 @@ KONTEXT (Frage, Musterantwort, Antwort des Kandidaten, Bewertung):
 ${context}`;
   }
 
+  // ------------------------------------------------------------------ VOICE (live examiner)
+  const VOICE_TRANSCRIBE_PROMPT = 'Mündliche Facharztprüfung Orthopädie und Traumatologie, Schweiz. Fachbegriffe, Klassifikationen, Eigennamen: Garden, Pauwels, Weber, Lauge-Hansen, Schatzker, Letournel, Tile, Young-Burgess, Vancouver, Neer, Rockwood, Salter-Harris, Gartland, AO, Tönnis, Wiberg, Lenke, TLICS, Gächter, Tsukayama, Zimmerli, Cierny-Mader, Gustilo, Tscherne.';
+
+  function voiceExaminer(settings) {
+    return `STIMME: Du sprichst live mit dem Kandidaten, wie am Prüfungstisch. Antworte sofort und kurz: höchstens zwei gesprochene Sätze, dann genau eine Frage, dann schweigen und zuhören. Keine Aufzählungen, keine Sonderzeichen, keine Anführungszeichen, nichts vorlesen, was wie eine Liste klingt. Wenn der Kandidat dich unterbricht, hör auf zu sprechen und hör zu. Wenn der Kandidat einen Befund erfragt, gib ihn in einem Satz aus dem Dossier und wiederhole dann die offene Frage. Wenn du eine neue Station eröffnest, verwende den vorgegebenen Wortlaut. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig, sachlich, ohne Lob und ohne Füllwörter.'}`;
+  }
+
+  function voiceOpen(stationIndex, resumed) {
+    const station = STATIONS[stationIndex];
+    return `[SYSTEM] ${resumed ? 'Die Prüfung wird nach einer Unterbrechung fortgesetzt. Sage das in einem Satz und' : 'Die Fallbesprechung beginnt. Begrüsse den Kandidaten in einem Satz, sage, dass er die Unterlagen und das Bild vor sich hat, und'} stelle dann wörtlich diese Frage (Station ${stationIndex + 1} von 5, ${station.label}): "${station.opener}"`;
+  }
+
+  function voiceTurn(stationIndex, followupNo, followupsTotal, exhausted, isLast, passages) {
+    const station = STATIONS[stationIndex];
+    const next = STATIONS[stationIndex + 1];
+    let task;
+    if (!exhausted) task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen. Sonst: höchstens ein kurzer Satz Reaktion, dann Nachfrage ${followupNo} von ${followupsTotal} zu dieser Station, gezielt auf die schwächste Stelle der letzten Antwort. Genau eine Frage.`;
+    else if (!isLast) task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen und die Station NICHT wechseln. Sonst: höchstens ein kurzer Satz Reaktion ohne Wertung, dann eröffne wörtlich die nächste Station (Station ${stationIndex + 2} von 5, ${next.label}): "${next.opener}"`;
+    else task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen und die Prüfung NICHT beenden. Sonst: höchstens ein kurzer Satz Reaktion ohne Wertung, dann sage wörtlich: "Die Fallbesprechung ist damit beendet. Vielen Dank."`;
+    return `[SYSTEM · STATION ${stationIndex + 1}/5 · ${station.label}] Erwartete Struktur der Antwort: ${station.schema}
+${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für dich; daran messen, nichts verraten):\n<<<\n${passages}\n>>>` : ''}`;
+  }
+
+  function voiceTutor(settings) {
+    return `STIMME: Du sprichst live mit dem Kandidaten. Antworte sofort, in höchstens drei bis vier gesprochenen Sätzen, dann schweigen; beim Abfragen genau eine Frage pro Zug. Keine Aufzählungen, keine Sonderzeichen, keine Überschriften. Zahlen und Grenzwerte nur, wenn du sicher bist oder sie in den Unterlagen stehen; im Zweifel zuerst mit dem Werkzeug "nachschlagen" in den Unterlagen des Kandidaten suchen oder sagen, dass du nicht sicher bist. Wenn der Kandidat dich unterbricht, hör zu. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig und sachlich.'}`;
+  }
+
+  const LOOKUP_TOOL = {
+    type: 'function', name: 'nachschlagen',
+    description: 'Durchsucht die Unterlagen des Kandidaten (FMH-Präsentationen, abgelegte PDFs, Notizen, Abfrage-Items) nach Passagen zu einer Frage. Verwenden, bevor du eine Zahl, einen Grenzwert oder eine Klassifikationsangabe nennst, die du nicht sicher weisst.',
+    parameters: { type: 'object', properties: { frage: { type: 'string', description: 'Suchbegriffe, deutsch und englisch, mit Eponymen' } }, required: ['frage'] },
+  };
+
   window.PROMPTS = {
+    PRINCIPLES, SWISS, VOICE_TRANSCRIBE_PROMPT, LOOKUP_TOOL, voiceExaminer, voiceOpen, voiceTurn, voiceTutor,
     REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,

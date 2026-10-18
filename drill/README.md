@@ -2,7 +2,9 @@
 
 Daily oral-exam drill for the swiss orthopaedics Facharztprüfung, Schlussprüfung 2. Teil
 (klinische Fallbesprechungen, 21 Nov 2026). Runs on your Mac, saves everything on your Mac,
-talks to OpenAI directly with your own key.
+talks to OpenAI directly with your own key. The examiner speaks and listens live (OpenAI
+Realtime over WebRTC), so a case runs like a conversation at the exam table; text stays as
+fallback everywhere.
 
 ## Start
 
@@ -39,11 +41,21 @@ for api.openai.com and for the PDF/PPTX parsers loaded from cdnjs.
 run mirrors the real exam: patient papers and image description, then the five official
 stations in fixed order (Anamnese/Untersuchung → Bildgebung/Zusatz → DD/Diagnose/Prognose →
 Therapie/Indikation/Aufklärung → Nachsorge), each with the same opening question every
-time plus 0–3 dynamic drill-down follow-ups, 15-minute timer, answers spoken (● SPRECHEN,
-transcribed with gpt-4o-transcribe) or typed, questions to the examiner allowed (NUR
-RÜCKFRAGE). Ends with a fixed feedback sheet: grade 1–6 per station, overall grade, what was
-missing, model answer skeleton per station, three sentences to memorise, and 3–5 new drill
-items generated from your gaps. Every run of the same case gets a different patient variant.
+time plus 0–3 dynamic drill-down follow-ups, 15-minute timer. **Live by default**: as soon
+as the dossier is ready the examiner greets you and asks the first question with his own voice,
+listens, answers in well under a second, can be interrupted, gives findings when you ask for
+them (a question to the examiner is recognised and does not use up a follow-up), opens the
+next station himself and closes the case; everything said on both sides lands in the
+transcript. ● LIVE in the answer box switches the call off and on (switching off hands the
+spoken turns to the text examiner, switching on briefs the voice with what was said so far),
+STUMM mutes the microphone, typed answers are forwarded to the live examiner, ● SPRECHEN
+(record → gpt-4o-transcribe) and typing remain the text mode. ▶ next to the patient papers
+and to every examiner line reads it aloud on demand. Ends with a fixed feedback sheet from the
+strong chat model: grade 1–6 per station, overall grade, what was missing, model answer
+skeleton per station (≤ 70 words, the skeleton only), three sentences to memorise, and 3–5 new
+drill items generated from your gaps. Every run of the same case gets a different patient
+variant. Cases are kept realistic and short: 3–5 sentences of papers like a real referral, a
+2–4 sentence image description, a solution of 3–5 core points per station.
 
 **ABFRAGE** — graded rapid-fire quiz on classifications, terminology, concepts, numbers,
 AO principles and technique. Filter by region, type, due/new/weak, keyword. The examiner
@@ -55,7 +67,12 @@ presentation corpus.
 **LAZY** — same items, no typing, no API cost: read (or have it read aloud with the
 browser's own voice), Space reveals, 1/2/3 rates.
 
-**FREI** — free prompt with the same examiner persona, grounded on a region or a case.
+**FREI** — free prompt with the same examiner persona, grounded on a region or a case. ● LIVE
+turns it into a spoken conversation: the examiner answers by voice, and whenever he is not sure
+of a number he looks it up in your sources through the `nachschlagen` tool before answering.
+Typed and spoken turns share one thread. The same ● LIVE button sits in every NACHFRAGEN box
+(after each quiz verdict and after each feedback sheet), so you can always talk to the examiner
+about what he just graded.
 
 **MATERIAL** — dump pad. Drop PDFs (any size; scanned pages are OCR'd through the vision
 model), PPTX, DOCX, TXT, and the JSON export of your AAOS tracker (its notes and error log
@@ -68,6 +85,21 @@ new image attachments become case images.
 
 **STATUS** — per-region accuracy, items due, case grades, weakest items and cases, daily
 activity, export/import.
+
+## Massstab
+
+Everything the model is told pulls toward the same target (`PRINCIPLES` in `prompts.js`):
+first principles before detail. A very good answer is short, ordered and safe: danger
+recognised or excluded first, structure in the expected order, the standard procedure of a
+Swiss hospital with a clear decision for this patient, the one decision-relevant classification
+with its consequence, the one to three thresholds that carry the decision, Aufklärung and
+Nachsorge concretely. Rarities, study names, percentage lists and alternative classifications
+give no bonus and replace none of that. The grade anchors, the strictness levels, the examiner's
+drill-down (numbers only where they carry the decision), the dossier solution, the feedback and
+the quiz grader all use this bar. `SWISS` adds the Swiss specifics an examiner expects where they
+fit the case (Swissnoso prophylaxis, thromboprophylaxis practice, Aufklärung, UVG / SUVA,
+Physiotherapie-Verordnung, Fahreignung, Hausarzt follow-up, osteoporosis work-up, tetanus,
+nicotine, no routine metal removal).
 
 ## Sources
 
@@ -116,12 +148,20 @@ one click. Toggle under ⚙.
 - `data/bank/*.js` — 256 hand-written seed items by region. Edit freely: one line per
   item `[type, topic, question, answer]`. Items are identified by their question text, so
   changing a question resets its progress.
-- `prompts.js` — the examiner protocol. Everything the model is told is here.
+- `prompts.js` — the examiner protocol. Everything the model is told is here, including the
+  voice addenda (`voiceExaminer`, `voiceOpen`, `voiceTurn`, `voiceTutor`) and the lookup tool.
+- `voice.js` — the one WebRTC connection to the Realtime API (microphone in, examiner voice
+  out, events over the data channel). `app.js` decides what the examiner is told per turn.
 
 ## Settings worth knowing
 
 Model `auto` picks the strongest model your key can use (gpt-6 › gpt-5.x › gpt-4.1) when you
-press SPEICHERN; type a model id to override. Denkaufwand (schnell / ausgewogen / gründlich:
+press SPEICHERN; type a model id to override. **Live-Prüfer**: on by default; the realtime
+model is picked the same way (newest full `gpt-realtime`, e.g. 2.1 › 2 › 1.5 › 1, never mini),
+voice (`cedar` default, `marin` the other new one), and Pausentoleranz (how long the examiner
+lets you pause before he answers; semantic voice activity detection, "lang" lets you think
+mid-answer, "kurz" answers fastest). Use headphones to avoid echo. The live model only runs
+the conversation; the case, the grading and the feedback stay on the strong chat model. Denkaufwand (schnell / ausgewogen / gründlich:
 case creation and feedback think harder than follow-ups and grading), Strenge (default hart),
 Nachfragen pro Station, Prüfer-Stimme (TTS), Sprache, and a free-text instruction that is
 appended to the examiner prompt ("frag mehr nach Zugängen").

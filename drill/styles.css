@@ -254,3 +254,16 @@ details.plain summary:hover { color: var(--ink); }
 .fact .fact-korrigiert strong { color: var(--warn); }
 .fact .fact-unklar .fact-icon { color: var(--muted); }
 .fact a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* live voice */
+.live-toggle.on { border-color: var(--warn); color: var(--warn); }
+.live-wrap { display: inline-flex; gap: 8px; align-items: center; }
+.live-status { font-family: var(--mono); font-weight: 700; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); }
+.live-status.listening { color: var(--signal); }
+.live-status.speaking { color: var(--warn); }
+.live-status.listening::before, .live-status.speaking::before { content: '● '; animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+
+/* read aloud on demand */
+.say { border: 0; background: transparent; color: var(--faint); font-size: 10px; padding: 0 4px; cursor: pointer; vertical-align: middle; letter-spacing: 0; }
+.say:hover { color: var(--signal); }
