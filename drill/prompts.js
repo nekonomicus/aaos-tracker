@@ -382,6 +382,10 @@ ${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}
 ${langLine(settings)}${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
 
+  function researchPrompt(caseItem) {
+    return `Suche im Web 3–5 frei zugängliche Seiten, auf denen ein typisches, echtes Röntgen-, CT- oder MRI-Bild zu diesem Prüfungsthema zu sehen ist: ${caseItem.title} (${caseItem.region}). Bevorzuge konkrete Fallseiten (Radiopaedia-Fälle mit passender Diagnose, AO Surgery Reference, Orthobullets, Wikimedia Commons, Fachartikel mit offenen Abbildungen). Keine Lehrbuch-Schemata, keine Shops. Für jede Seite: Titel, URL, und in max. 12 Wörtern, was dort zu sehen ist (Modalität, Ebene, Befund). Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
+  }
+
   // ------------------------------------------------------------------ DISCUSS
   function discussSystem(settings, context) {
     return `Du bist der Prüfungsexperte, der soeben bewertet hat, jetzt im Gespräch nach der Prüfung. Der Kandidat darf nachfragen: warum etwas falsch oder unvollständig war, wie die Musterantwort begründet ist, wie er es beim nächsten Mal formulieren soll, Hintergrund zu Klassifikation, Zahlen, Technik.
@@ -398,6 +402,6 @@ ${context}`;
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,
     extractSystem, extractPrompt, generateSystem, generatePrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
-    commonsQueryPrompt, COMMONS_SCHEMA, freeSystem, discussSystem,
+    commonsQueryPrompt, COMMONS_SCHEMA, researchPrompt, freeSystem, discussSystem,
   };
 })();

@@ -312,7 +312,20 @@
       return { id: `img-${img.file.replace(/\W/g, '')}`, type: 'bild', kind: img.kind, region: regionOfCase(c), topic: c?.title || img.src, q: P.IMAGE_QUESTIONS[img.kind] || P.IMAGE_QUESTIONS.diagram, a: img.text || '', img: `data/img/${img.file}`, src: img.src, slide: img.slide, caseIds: img.cases, source: 'bild' };
     });
   }
-  function allItems() { return seedBank.concat(customBank, state.settings.images ? imageBank : []); }
+  function userImages(caseId) { return ((state.caseImages || {})[caseId] || []); }
+  function ownImages(caseItem) {
+    return IMAGES.filter((i) => i.cases.includes(caseItem.id) && ['xray', 'ct', 'mri'].includes(i.kind)).map((i) => ({ src: `data/img/${i.file}`, credit: `${i.src} · Folie ${i.slide}`, note: i.text ? i.text.slice(0, 200) : '' }))
+      .concat(userImages(caseItem.id).map((u) => ({ src: u.src, credit: u.credit, note: u.note || '' })));
+  }
+  function userImageItems() {
+    const out = [];
+    for (const [caseId, list] of Object.entries(state.caseImages || {})) for (const [k, u] of list.entries()) {
+      const c = caseById(caseId);
+      out.push({ id: `img-user-${caseId}-${k}`, type: 'bild', kind: 'xray', region: regionOfCase(c), topic: c?.title || caseId, q: P.IMAGE_QUESTIONS.xray, a: u.note || '', img: u.src, src: u.credit, slide: 0, caseIds: [caseId], source: 'bild' });
+    }
+    return out;
+  }
+  function allItems() { return seedBank.concat(customBank, state.settings.images ? imageBank.concat(userImageItems()) : []); }
   function stats(id) { return state.items[id] || { box: 0, due: 0, seen: 0, right: 0, hist: [] }; }
   function schedule(id, score) {
     const s = { ...stats(id) };
@@ -399,9 +412,9 @@
   async function imageCandidates(caseItem) {
     const out = []; out.note = '';
     if (!state.settings.images) { out.note = 'Bilder in den Einstellungen ausgeschaltet'; return out; }
-    const own = shuffle(IMAGES.filter((i) => i.cases.includes(caseItem.id) && ['xray', 'ct', 'mri'].includes(i.kind)));
+    const own = shuffle(ownImages(caseItem));
     for (const img of own.slice(0, 3)) {
-      try { out.push({ src: `data/img/${img.file}`, url: await toDataUrl(`data/img/${img.file}`), credit: `${img.src} · Folie ${img.slide}`, note: img.text ? img.text.slice(0, 200) : '' }); } catch { /* skip */ }
+      try { out.push({ src: img.src, url: await toDataUrl(img.src), credit: img.credit, note: img.note }); } catch { /* skip */ }
     }
     if (!out.length) out.note = own.length ? 'eigene Bilder nicht ladbar' : 'keine eigenen Bilder zu diesem Fall';
     if (!out.length && state.settings.webImages) {
@@ -481,6 +494,43 @@
     return `${answers.length} Antworten, insgesamt ${total} Wörter, Ø ${Math.round(total / answers.length)} Wörter pro Antwort (min ${Math.min(...answers)}, max ${Math.max(...answers)}), Eröffnungsantworten Ø ${Math.round(openers.reduce((a, b) => a + b, 0) / openers.length)} Wörter, Dauer ${minutes} min von 15.`;
   }
 
+  // web research for a case: pages that show the typical imaging (OpenAI web_search tool)
+  async function researchLinks(caseItem) {
+    const body = { model: activeModel(), tools: [{ type: 'web_search' }], input: P.researchPrompt(caseItem) };
+    if (isReasoningModel(activeModel())) body.reasoning = { effort: 'low' };
+    let res;
+    try { res = await openaiFetch('/responses', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+    catch (error) {
+      if (/web_search|tool/i.test(error.message)) { body.tools = [{ type: 'web_search_preview' }]; res = await openaiFetch('/responses', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+      else throw error;
+    }
+    const data = await res.json();
+    const text = (data.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).filter((c) => c.type === 'output_text').map((c) => c.text).join('\n') || data.output_text || '';
+    const match = text.match(/\{[\s\S]*\}/);
+    let links = [];
+    try { links = match ? JSON.parse(match[0]).links || [] : []; } catch { links = []; }
+    if (!links.length) {
+      const cites = (data.output || []).flatMap((o) => o.content || []).flatMap((c) => c.annotations || []).filter((a) => a.type === 'url_citation');
+      links = cites.map((a) => ({ title: a.title || a.url, url: a.url, why: '' }));
+    }
+    const seen = new Set();
+    return links.filter((l) => l.url && /^https?:/.test(l.url) && !seen.has(l.url) && seen.add(l.url)).slice(0, 6);
+  }
+  async function storeCaseImage(caseId, blob, credit, note) {
+    const src = await Store.uploadFile(blob, `case-${caseId}-${Date.now()}.jpg`);
+    if (!src) throw new Error('Speichern nur mit laufendem server.py möglich');
+    (state.caseImages = state.caseImages || {})[caseId] = userImages(caseId).concat({ src, credit, note: note || '', t: Date.now() });
+    clearTimeout(Store._timer); await Store.flush();
+    return { src, credit, note: note || '' };
+  }
+  async function blobToJpeg(blob, maxSide = 1600) {
+    const bmp = await createImageBitmap(blob);
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas'); canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    return new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.88));
+  }
+
   // ------------------------------------------------------------------ router
   const view = $('#view');
   let currentCleanup = null;
@@ -523,7 +573,7 @@
         const regionDone = items.filter((c) => caseSummary(c.id).runs > 0).length;
         return `<section class="matrix-group">
           <div class="matrix-head"><h3>${esc(region)}</h3><span class="meta">${regionDone}/${items.length}</span></div>
-          ${items.map((c) => { const s = caseSummary(c.id); const hasImg = IMAGES.some((i) => i.cases.includes(c.id) && ['xray', 'ct', 'mri'].includes(i.kind)); return `
+          ${items.map((c) => { const s = caseSummary(c.id); const hasImg = ownImages(c).length > 0; return `
             <button class="case-row" data-case="${c.id}">
               <span class="id">${esc(c.id.toUpperCase())}</span>
               <span class="title">${esc(c.title)}${hasImg ? ' <span class="faint" title="Bilder vorhanden">▣</span>' : ''}</span>
@@ -640,10 +690,61 @@
 
     async function begin() {
       if (!requireKey()) return;
+      if (state.settings.images && !ownImages(caseItem).length && serverOk) return researchPanel();
+      return start(null);
+    }
+    // No own image: let the candidate research one (links from a web search), drop or paste it, or go on without.
+    function researchPanel() {
+      $('#dossier').innerHTML = `
+        <span class="label muted">BILDDOKUMENTATION · KEIN EIGENES BILD ZU DIESEM FALL</span>
+        <p class="muted" style="margin:8px 0 12px">Recherchiere das typische Bild selbst, dann hier ablegen (Datei, Screenshot per ⌘V, oder Bild-URL). Es bleibt diesem Fall zugeordnet.</p>
+        <div id="links" class="schema"><span class="spinner"></span> &nbsp;<span class="thinking">PRÜFER SUCHT PASSENDE SEITEN</span></div>
+        <div class="drop" id="img-drop" style="margin:14px 0 10px;padding:22px">BILD HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" id="img-file" accept="image/*" hidden></div>
+        <div class="row"><input type="text" id="img-url" placeholder="oder Bild-URL einfügen" style="max-width:420px"><button class="btn small" id="img-url-go">ÜBERNEHMEN</button><span class="spacer"></span><button class="btn ghost" id="img-skip">WEITER OHNE EIGENES BILD</button></div>
+        <div class="img-credit" id="img-status"></div>`;
+      const status = (t, bad) => { const el = $('#img-status'); if (el) { el.textContent = t; el.classList.toggle('warn', !!bad); } };
+      const useBlob = async (blob, credit, note) => {
+        try {
+          status('Bild wird gespeichert …');
+          const jpeg = await blobToJpeg(blob);
+          const img = await storeCaseImage(caseId, jpeg, credit, note);
+          imageBank = imageBank.filter((it) => !it.id.startsWith('img-user-')); // rebuilt lazily by allItems()
+          start(img);
+        } catch (error) { status(error.message, true); }
+      };
+      const drop = $('#img-drop'); const input = $('#img-file');
+      drop.onclick = () => input.click();
+      drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+      drop.ondragleave = () => drop.classList.remove('over');
+      drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/')); if (f) useBlob(f, `eigene Recherche · ${f.name}`); else { const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:/.test(url)) fromUrl(url.trim()); } };
+      input.onchange = () => { const f = input.files[0]; if (f) useBlob(f, `eigene Recherche · ${f.name}`); input.value = ''; };
+      const onPaste = (e) => { const f = Array.from(e.clipboardData?.files || []).find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); useBlob(f, 'eigene Recherche · Screenshot'); } };
+      document.addEventListener('paste', onPaste);
+      const prevCleanup = currentCleanup; currentCleanup = () => { document.removeEventListener('paste', onPaste); if (prevCleanup) prevCleanup(); };
+      async function fromUrl(url) {
+        try { status('Bild wird geladen …'); const blob = await fetch(proxied(url)).then((r) => { if (!r.ok) throw new Error(`Bild nicht ladbar (${r.status})`); return r.blob(); }); await useBlob(blob, `eigene Recherche · ${new URL(url).hostname}`, url); }
+        catch (error) { status(error.message, true); }
+      }
+      $('#img-url-go').onclick = () => { const u = $('#img-url').value.trim(); if (/^https?:/.test(u)) fromUrl(u); else status('Keine gültige URL', true); };
+      $('#img-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#img-url-go').click(); });
+      $('#img-skip').onclick = () => { document.removeEventListener('paste', onPaste); start(null); };
+      researchLinks(caseItem).then((links) => {
+        const el = $('#links'); if (!el) return;
+        el.innerHTML = links.length
+          ? `<span class="label muted">SEITEN MIT PASSENDEM BILD</span><ul class="clean" style="margin-top:6px">${links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a> <span class="faint">${esc(new URL(l.url).hostname.replace(/^www\./, ''))}${l.why ? ` · ${esc(l.why)}` : ''}</span></li>`).join('')}</ul>`
+          : '<span class="muted">Websuche ohne Ergebnis. Radiopaedia, AO Surgery Reference oder Orthobullets manuell durchsuchen.</span>';
+      }).catch((error) => { const el = $('#links'); if (el) el.innerHTML = `<span class="muted">Websuche nicht verfügbar (${esc(error.message)}). Radiopaedia, AO Surgery Reference oder Orthobullets manuell durchsuchen.</span>`; });
+    }
+    async function start(dropped) {
+      $('#dossier').innerHTML = '<span class="thinking"><span class="spinner"></span> &nbsp;DER PRÜFER BEREITET DEN FALL VOR</span>';
       try {
-        const [grounding, candidates] = await Promise.all([groundingForCase(caseItem), imageCandidates(caseItem)]);
+        const [grounding, auto] = await Promise.all([groundingForCase(caseItem), dropped ? Promise.resolve([]) : imageCandidates(caseItem)]);
+        let candidates = auto;
+        if (dropped) { try { candidates = [{ src: dropped.src, url: await toDataUrl(dropped.src), credit: dropped.credit, note: dropped.note }]; candidates.note = ''; } catch { candidates = []; candidates.note = 'eigenes Bild nicht ladbar'; } }
         const memory = memoryFor(caseItem);
-        const imageNotes = candidates.length
+        const imageNotes = dropped && candidates.length
+          ? `BILDER: 1 Bild ist angehängt, das der Kandidat selbst für dieses Thema recherchiert hat (${candidates[0].credit}${candidates[0].note ? ` · ${candidates[0].note}` : ''}). Baue den Fall darauf auf: "bild_geeignet" = true, "bild_index" = 0, Seite, Fraktur und Klassifikation exakt passend zum Bild; nur wenn es eindeutig kein medizinisches Bild oder ein anderes Thema ist: false.`
+          : candidates.length
           ? `BILDER: ${candidates.length} Kandidatenbild(er) sind angehängt (0-basiert nummeriert, in Reihenfolge). Herkunft: ${candidates.map((c, i) => `[${i}] ${c.credit}${c.note ? ` · Folientext: ${c.note}` : ''}`).join(' | ')}. Wähle höchstens eines und nur, wenn du sicher bist.`
           : 'BILDER: keine Bilder verfügbar; "bild_geeignet" = false, "bild_index" = -1, "bild_befund" leer.';
         const dossier = await chatJSON({ system: 'Du bist Prüfungsexperte und erstellst Prüfungsdossiers. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.dossierPrompt(state.settings, caseItem, grounding, previous, difficulty, imageNotes, memory) }], schema: P.DOSSIER_SCHEMA, name: 'dossier', heavy: true, images: candidates.map((c) => c.url) });

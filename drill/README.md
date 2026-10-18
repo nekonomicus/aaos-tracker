@@ -69,8 +69,12 @@ activity, export/import.
   classification schemas, anatomy), labelled by kind and mapped to cases. In PRÜFUNG the
   examiner gets the radiographs of the case and builds the dossier on one of them only if it
   judges the image a clear, unlabelled match; otherwise the case runs on a text description.
-  With no own image, it searches the web under the same rule: Google Images if you add a free
-  Custom Search key and engine id in settings (100 queries/day), Wikimedia Commons always.
+  With no own image, the case opens with a research step: the examiner searches the web
+  (OpenAI web_search) and lists pages that show the typical imaging; you find the picture,
+  drop it, paste a screenshot (⌘V) or paste its URL. The image is stored in userdata/files,
+  attached to that case for good, used to build the case, and becomes a quiz image item.
+  "Weiter ohne eigenes Bild" falls back to an automatic search (Google Images with your own
+  free Custom Search key, Wikimedia Commons always) with the examiner's suitability check.
   Remote images are downloaded through server.py (`/api/fetch`), since browsers cannot fetch
   cross-origin images themselves. In ABFRAGE/LAZY every image is also a drill item ("Befunden Sie das Bild"), graded
   by the vision model. Images from PPTX files you dump are extracted the same way.
