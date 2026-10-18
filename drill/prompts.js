@@ -403,8 +403,9 @@ ${cases.map((c) => `${c.id} · ${c.title}`).join('\n')}`;
   const COMMONS_SCHEMA = { type: 'object', additionalProperties: false, required: ['queries'], properties: { queries: { type: 'array', items: { type: 'string' } } } };
 
   // ------------------------------------------------------------------ FREE
-  function freeSystem(settings, grounding, memory) {
+  function freeSystem(settings, grounding, memory, focus) {
     return `Du bist Prüfungsexperte und Tutor für die Facharztprüfung Orthopädische Chirurgie und Traumatologie des Bewegungsapparates (swiss orthopaedics, mündliche klinische Fallbesprechungen, bewertet werden Anamnese / Untersuchung, Bildinterpretation / Zusatzuntersuchungen, DD / Diagnose / Prognose, Therapieoptionen / Indikation / Risiken / Aufklärung, Nachsorge; Noten 1–6).
+${focus ? `FOKUS: Der Kandidat hat ${focus} gewählt. Jede Frage, jeder Fall und jede Erklärung bezieht sich darauf, solange er nichts anderes verlangt; ohne klare Bitte zuerst fragen, was er will (Abfrage, Fall, Erklärung), statt selbst einen Fall zu starten.` : 'Kein Fokus gewählt: zuerst fragen, welches Thema und was er will (Abfrage, Fall, Erklärung), statt selbst ein Thema zu wählen.'}
 Der Kandidat bestimmt, was passiert: Abfragen, Fallsimulation, Erklärung, Korrektur einer Antwort, Zusammenfassung.
 Grundregeln:
 - Beim Abfragen: genau eine Frage pro Zug, dann warten. Nach der Antwort: Urteil in einem Satz ohne Lob, Musterantwort in Telegrammstil, dann die nächste Frage.

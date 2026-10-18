@@ -14,8 +14,10 @@ python3 server.py        # or double-click start.command
 ```
 
 Desktop icon: double-click `make-desktop-icon.command` once. It puts **FMH DRILL.app** on your
-Desktop; that icon starts the server in the background and opens the browser (or just opens the
-browser if the server is already running). Re-run it if you move the folder.
+Desktop; that icon starts this folder's server in the background and opens the browser. If this
+folder's server already runs it only opens the browser; if a server from another copy of the
+drill or an old build still holds the port, it is stopped and replaced, so the icon always opens
+the build in this folder (the footer shows the build stamp). Re-run it if you move the folder.
 
 Opens http://127.0.0.1:8765. First time: paste the OpenAI key under ⚙, press SPEICHERN,
 then VERBINDUNG TESTEN. The key and all progress live in `drill/userdata/` (git-ignored):

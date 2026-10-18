@@ -1467,6 +1467,18 @@
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); $('#btn-send').click(); } });
     $('#quick').onclick = (e) => { const p = e.target.closest('.pill'); if (p) { ta.value = p.dataset.q; ta.focus(); } };
     $('#free-reset').onclick = () => { messages = []; chat.innerHTML = ''; };
+    // what the candidate picked: told to the examiner explicitly and used to anchor the retrieval
+    async function freeContext(text) {
+      const region = $('#free-region').value; const cid = $('#free-case').value; const c = cid ? caseById(cid) : null;
+      const focus = c ? `den Fall ${c.id.toUpperCase()} · ${c.title} (${c.region})` : region ? `die Region ${region}` : '';
+      let grounding = '';
+      if (c) grounding = await groundingForCase(c, 12000, text);
+      else if (region) grounding = await groundingForRegion(region, 9000, text);
+      const anchor = c ? c.title : region;
+      const passages = await lookup(`${anchor || ''} ${text}`, anchor ? 4000 : 9000, { k: 8, boost: c ? (x) => (x.caseId === c.id ? 1.6 : 1) : null }).catch(() => '');
+      if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
+      return { system: P.freeSystem(state.settings, grounding, memoryFor(c, region || null), focus), focus };
+    }
     function add(role, text) {
       const div = document.createElement('div'); div.className = `msg ${role}`;
       div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER <button class="say" type="button" title="Vorlesen">▶</button>' : 'DU'}</div><div class="body"></div>`;
@@ -1476,27 +1488,18 @@
     }
     attachLive($('.answer-tools'), {
       add,
-      system: async () => {
-        const region = $('#free-region').value; const cid = $('#free-case').value; let grounding = '';
-        if (cid) grounding = await groundingForCase(caseById(cid), 9000); else if (region) grounding = await groundingForRegion(region, 7000);
-        return P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null));
-      },
+      system: async () => (await freeContext('')).system,
       onTurn: (entry, fresh) => { if (fresh) messages.push(entry); },
       history: () => messages,
-      greeting: 'Begrüsse den Kandidaten in einem kurzen Satz und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.',
+      greeting: 'Begrüsse den Kandidaten in einem kurzen Satz, nenne den gewählten Fokus, und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.',
     });
     $('#btn-send').onclick = async () => {
       const text = ta.value.trim(); if (!text || busy || !requireKey()) return;
       busy = true; ta.value = ''; add('candidate', text); messages.push({ role: 'user', content: text });
       const body = add('examiner', ''); body.innerHTML = '<span class="spinner"></span>';
       try {
-        const region = $('#free-region').value; const cid = $('#free-case').value;
-        let grounding = '';
-        if (cid) grounding = await groundingForCase(caseById(cid), 12000, text);
-        else if (region) grounding = await groundingForRegion(region, 9000, text);
-        const passages = await lookup(text, cid || region ? 4000 : 9000, { k: 8 }).catch(() => '');
-        if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
-        const full = await chatStream({ system: P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null)), messages: messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
+        const { system } = await freeContext(text);
+        const full = await chatStream({ system, messages: messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; messages.push({ role: 'assistant', content: full });
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; }

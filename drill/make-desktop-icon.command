@@ -1,6 +1,7 @@
 #!/bin/bash
 # Double-click once: puts "FMH DRILL.app" on your Desktop. Double-clicking that icon starts
-# server.py in the background (or just opens the browser if it is already running).
+# server.py of THIS folder in the background (if this folder's server already runs it only opens
+# the browser; a server from another copy or an old build is stopped and replaced).
 # Re-run this file if you move the drill folder.
 set -e
 DRILL="$(cd "$(dirname "$0")" && pwd)"
@@ -10,13 +11,25 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cat > "$APP/Contents/MacOS/FMH DRILL" <<LAUNCH
 #!/bin/bash
+# Starts THIS folder's server. If a server from another copy of the drill (or an old build) still holds
+# the port, it is stopped first, so the icon never opens a stale build.
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+PORT=8765
 cd "$DRILL" || { osascript -e 'display alert "FMH DRILL" message "Der Ordner drill/ wurde nicht gefunden. make-desktop-icon.command nochmals ausführen."'; exit 1; }
 if ! command -v python3 >/dev/null 2>&1; then
   osascript -e 'display alert "FMH DRILL" message "python3 fehlt. Im Terminal: xcode-select --install"'
   exit 1
 fi
 mkdir -p userdata
-# server.py opens the browser itself; if it is already running on 8765 it only opens the browser and exits.
+running=\$(curl -s --max-time 1 "http://127.0.0.1:\$PORT/api/ping" || true)
+if [ -n "\$running" ]; then
+  case "\$running" in
+    *'"dataDir": "'"$DRILL"'/userdata"'*) open "http://127.0.0.1:\$PORT/"; exit 0 ;;   # this folder already serves: just open it
+  esac
+  lsof -ti tcp:\$PORT | xargs kill 2>/dev/null                                         # another copy / old build: stop it
+  for i in 1 2 3 4 5 6 7 8 9 10; do lsof -ti tcp:\$PORT >/dev/null 2>&1 || break; sleep 0.3; done
+fi
+# server.py opens the browser itself
 nohup python3 server.py >> userdata/server.log 2>&1 &
 LAUNCH
 chmod +x "$APP/Contents/MacOS/FMH DRILL"
