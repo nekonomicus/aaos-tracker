@@ -80,7 +80,13 @@ focus (a running live call is re-briefed, otherwise the call is started) and ope
 question. SCHWÄCHEN DRILLEN hands him your weaknesses profile and he works through it, weakest
 first. Every thread (FREI and every NACHFRAGEN box) is saved in `userdata/sessions/` and listed
 under GESPRÄCHE, where one click continues it. When a thread with substance ends, one small
-model call distils it into the profile: what you did not know, what you had down cold, by region. ● LIVE turns it into a spoken conversation: the examiner answers by voice, and
+model call distils it into the profile: what you did not know, what you had down cold, by region.
+The examiner knows your presentations by name (the FMH decks and every PPTX / PDF you dumped into
+MATERIAL). Ask "führ mich durch die Präsentation zur distalen Bizepssehnenruptur" and the whole
+deck is attached in slide order; he walks you through it slide by slide, one per turn, with the
+slide's image shown under his message (text: `[Folie N]`; live: he calls `folie_zeigen`), what
+the examiner would ask about it, and a short control question before moving on. The deck's
+thumbnails sit above the chat for the rest of the thread. ● LIVE turns it into a spoken conversation: the examiner answers by voice, and
 whenever he is not sure of a number he looks it up in your sources through the `nachschlagen`
 tool before answering. Typed and spoken turns share one thread. The same ● LIVE button sits in every NACHFRAGEN box
 (after each quiz verdict and after each feedback sheet), so you can always talk to the examiner

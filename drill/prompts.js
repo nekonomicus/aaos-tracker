@@ -493,6 +493,14 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
     return `STIMME: Du sprichst live mit dem Kandidaten. Antworte sofort, in höchstens drei bis vier gesprochenen Sätzen, dann schweigen; beim Abfragen genau eine Frage pro Zug. Keine Aufzählungen, keine Sonderzeichen, keine Überschriften. Zahlen und Grenzwerte nur, wenn du sicher bist oder sie in den Unterlagen stehen; im Zweifel zuerst mit dem Werkzeug "nachschlagen" in den Unterlagen des Kandidaten suchen oder sagen, dass du nicht sicher bist. Wenn der Kandidat dich unterbricht, hör zu. Entscheide selbst und fang an: keine Fragen nach Präferenzen, höchstens eine kurze Rückfrage, wenn etwas wirklich unklar ist; der Kandidat lenkt jederzeit um. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig und sachlich.'}`;
   }
 
+  // walking through one of the candidate's presentations, slide by slide
+  const WALKTHROUGH = `PRÄSENTATIONEN: Will der Kandidat durch eine Präsentation geführt werden ("führ mich durch …", "geh die Folien durch"), dann Folie für Folie in der Reihenfolge der Präsentation, pro Zug eine Folie (höchstens zwei kurze): zuerst, was die Folie sagt, dann in einem Satz, was der Prüfer dazu fragt, dann eine kurze Kontrollfrage; weiter erst, wenn der Kandidat will ("weiter"). Schreibe vor jede besprochene Folie [Folie N], die App zeigt dann ihr Bild. Nichts erfinden, was nicht auf der Folie steht; Ergänzungen als solche kennzeichnen.`;
+  const WALKTHROUGH_LIVE = `PRÄSENTATIONEN: Will der Kandidat durch eine Präsentation geführt werden oder nennt er eine, lade sie mit praesentation_laden (Name aus der Liste) und geh sie Folie für Folie in der Reihenfolge durch, pro Zug eine Folie: rufe zuerst folie_zeigen(N) auf, dann sage, was die Folie sagt, dann in einem Satz, was der Prüfer dazu fragt, dann eine kurze Kontrollfrage; weiter erst, wenn der Kandidat will. Nichts erfinden, was nicht auf der Folie steht.`;
+  const DECK_TOOLS = [
+    { type: 'function', name: 'praesentation_laden', description: 'Lädt eine Präsentation des Kandidaten vollständig, Folie für Folie in Reihenfolge (Text; Bilder sind markiert). Verwenden, wenn der Kandidat durch eine Präsentation geführt werden will oder eine nennt.', parameters: { type: 'object', properties: { name: { type: 'string', description: 'Dateiname aus der Liste der Präsentationen, z. B. "Distal-Bicep-2.pptx"' } }, required: ['name'] } },
+    { type: 'function', name: 'folie_zeigen', description: 'Zeigt dem Kandidaten das Bild einer Folie der geladenen Präsentation auf dem Bildschirm. Vor jeder besprochenen Folie aufrufen.', parameters: { type: 'object', properties: { nummer: { type: 'integer', description: 'Foliennummer' }, name: { type: 'string', description: 'Dateiname der Präsentation, falls mehrere geladen sind' } }, required: ['nummer'] } },
+  ];
+
   const LOOKUP_TOOL = {
     type: 'function', name: 'nachschlagen',
     description: 'Durchsucht die Unterlagen des Kandidaten (FMH-Präsentationen, abgelegte PDFs, Notizen, Abfrage-Items) nach Passagen zu einer Frage. Verwenden, bevor du eine Zahl, einen Grenzwert oder eine Klassifikationsangabe nennst, die du nicht sicher weisst.',
@@ -500,7 +508,7 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
   };
 
   window.PROMPTS = {
-    PRINCIPLES, SWISS, VOICE_TRANSCRIBE_PROMPT, LOOKUP_TOOL, CLOSING, opener, voiceExaminer, voiceOpen, voiceTurn, voiceTutor,
+    PRINCIPLES, SWISS, VOICE_TRANSCRIBE_PROMPT, LOOKUP_TOOL, DECK_TOOLS, WALKTHROUGH, WALKTHROUGH_LIVE, CLOSING, opener, voiceExaminer, voiceOpen, voiceTurn, voiceTutor,
     REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,

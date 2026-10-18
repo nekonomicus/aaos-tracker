@@ -599,6 +599,58 @@
       .catch(() => { holder.profiled = false; });
   }
 
+  // ------------------------------------------------------------------ decks
+  // The candidate's presentations as whole decks (slides in order, with their images), so the examiner can
+  // be asked to walk through one: the FMH presentations in the corpus plus every PPTX / PDF dumped into MATERIAL.
+  function decks() {
+    const out = new Map();
+    for (const [cid, entries] of Object.entries(CORPUS)) for (const e of entries) {
+      const d = out.get(e.name) || { name: e.name, caseIds: [], text: e.text, images: IMAGES.filter((i) => i.src === e.name).map((i) => ({ src: `data/img/${i.file}`, slide: i.slide, kind: i.kind })) };
+      if (!d.caseIds.includes(cid)) d.caseIds.push(cid); out.set(e.name, d);
+    }
+    for (const m of materialsIndex) if (m.kind === 'fmh' || /\.(pptx|pdf|docx)$/i.test(m.name)) out.set(m.name, { name: m.name, caseIds: m.caseIds || [], materialId: m.id, text: null, images: (m.images || []).map((i) => ({ src: i.src, slide: i.slide, kind: 'xray' })) });
+    return [...out.values()].map((d) => ({ ...d, slides: d.text ? (d.text.match(/--- (?:Folie|Seite) \d+ ---/g) || []).length : 0, title: d.caseIds.map((id) => caseById(id)?.title).filter(Boolean).join(' / ') }));
+  }
+  async function deckText(d) { if (d.text != null) return d.text; const m = await Store.getMaterial(d.materialId).catch(() => null); d.text = m?.text || ''; return d.text; }
+  const deckSlides = (d) => [...new Set(d.images.map((i) => i.slide))].sort((a, b) => a - b);
+  function deckList() { return decks().map((d) => `- «${d.name}»${d.title ? ` (${d.title})` : ''}${d.slides ? ` · ${d.slides} Folien` : ''}${d.images.length ? ` · Bilder auf Folie ${deckSlides(d).join(', ')}` : ''}`).join('\n'); }
+  function deckByName(name) { const n = norm(name || ''); if (!n) return null; const all = decks(); return all.find((d) => norm(d.name) === n) || all.find((d) => norm(d.name).includes(n) || n.includes(norm(d.name))) || null; }
+  // which decks a message is about: tokens of the file name or of the case title; "die Präsentation" alone → the selected case's decks
+  function detectDecks(text, sel) {
+    const all = decks(); const msg = Index.tokens(text); if (!msg.length) return [];
+    const scored = all.map((d) => { const hay = Index.tokens(`${d.name.replace(/[-_.]+/g, ' ')} ${d.title}`); const hit = msg.filter((t) => t.length >= 4 && hay.some((h) => h.startsWith(t) || t.startsWith(h))).length; return { d, hit }; }).filter((x) => x.hit > 0).sort((a, b) => b.hit - a.hit);
+    const wants = /pr[äa]sentation|folie|slides?|deck|durchgeh|durchf[üu]hr|walk|vortrag/i.test(text);
+    let picked = scored.filter((x) => x.hit >= 2 || (wants && x.hit >= 1)).slice(0, 3).map((x) => x.d);
+    if (!picked.length && wants && sel?.c) picked = all.filter((d) => d.caseIds.includes(sel.c.id));
+    return picked;
+  }
+  function slideText(d, n) { const m = (d.text || '').split(/(?=--- (?:Folie|Seite) \d+ ---)/).find((part) => part.startsWith(`--- Folie ${n} ---`) || part.startsWith(`--- Seite ${n} ---`)); return m ? m.replace(/^--- [^\n]*---\n?/, '').trim() : ''; }
+  async function deckBlock(list) {
+    const parts = []; let budget = 45000;
+    for (const d of list) {
+      let t = await deckText(d); if (!t) continue; if (t.length > 20000) t = `${t.slice(0, 20000)}\n[gekürzt]`; if (t.length > budget) break; budget -= t.length;
+      parts.push(`PRÄSENTATION «${d.name}»${d.title ? ` (${d.title})` : ''}, vollständig in Folienreihenfolge${d.images.length ? `; Bilder vorhanden auf Folie ${deckSlides(d).join(', ')}` : ''}:\n<<<\n${t}\n>>>`);
+    }
+    return parts.join('\n\n');
+  }
+  // slide images under an examiner message: every [Folie N] in the text, from the attached decks
+  function slideFigures(nums, list, label = true) {
+    const wrap = document.createElement('div'); wrap.className = 'slides';
+    for (const n of nums) {
+      const d = list.find((x) => x.images.some((i) => i.slide === n)) || list[0]; if (!d) continue;
+      const imgs = d.images.filter((i) => i.slide === n);
+      if (!imgs.length) { if (label) { const tag = document.createElement('span'); tag.className = 'pill'; tag.textContent = `FOLIE ${n} · ${d.name} · kein Bild`; wrap.appendChild(tag); } continue; }
+      for (const i of imgs) { const f = document.createElement('figure'); f.innerHTML = `<img data-zoom alt=""><figcaption>FOLIE ${n} · ${esc(d.name)}</figcaption>`; f.querySelector('img').src = i.src; wrap.appendChild(f); }
+    }
+    return wrap.childElementCount ? wrap : null;
+  }
+  function renderSlideRefs(body, text, list) {
+    if (!list?.length) return;
+    const nums = [...new Set([...String(text).matchAll(/\[Folie\s+(\d+)\]/gi)].map((m) => Number(m[1])))];
+    if (!nums.length) return;
+    const fig = slideFigures(nums, list); if (fig) body.after(fig);
+  }
+
   // images for a case: own slides first, Wikimedia Commons as fallback
   async function imageCandidates(caseItem) {
     const out = []; out.note = '';
@@ -655,9 +707,11 @@
   // Talk to the examiner wherever there is a chat box (FREI, NACHFRAGEN after every verdict and
   // feedback): same transport as the live exam, the model answers by itself after each utterance,
   // and it can look passages up in the candidate's sources through the "nachschlagen" tool.
-  function attachLive(tools, { system, add, onTurn, history, greeting }) {
+  const LOOKUP_HANDLER = { ...P.LOOKUP_TOOL, run: async (args) => (await lookup(args.frage || '', 3500, { k: 5 }).catch(() => '')) || 'Keine passenden Passagen in den Unterlagen.' };
+  function attachLive(tools, { system, add, onTurn, history, greeting, extraTools = [] }) {
     if (!tools || !window.RealtimeVoice) return null;
-    let rebriefNote = null;
+    const handlers = [LOOKUP_HANDLER, ...extraTools];
+    const toolDefs = handlers.map(({ run, ...def }) => def);
     const wrap = document.createElement('span'); wrap.className = 'live-wrap';
     wrap.innerHTML = '<button class="btn small live-toggle" type="button" title="Mit dem Prüfer sprechen (OpenAI Realtime)">● LIVE</button><button class="btn small ghost" type="button" hidden>STUMM</button><span class="live-status"></span>';
     tools.insertBefore(wrap, tools.querySelector('.spacer'));
@@ -690,10 +744,11 @@
         case 'response.output_audio_transcript.done': case 'response.audio_transcript.done': { if (ex) { exText = (e.transcript || exText).trim(); ex.textContent = exText; } break; }
         case 'response.done': { if (exText.trim()) onTurn({ role: 'assistant', content: exText.trim() }, true); ex = null; exText = ''; break; }
         case 'response.output_item.done': {
-          const it = e.item; if (it?.type !== 'function_call' || it.name !== 'nachschlagen' || !voice) break;
-          let q = ''; try { q = JSON.parse(it.arguments || '{}').frage || ''; } catch { q = ''; }
-          const out = await lookup(q, 3500, { k: 5 }).catch(() => '');
-          voice.toolResult(it.call_id, out || 'Keine passenden Passagen in den Unterlagen.'); voice.respond();
+          const it = e.item; if (it?.type !== 'function_call' || !voice) break;
+          const tool = handlers.find((h) => h.name === it.name); if (!tool) { voice.toolResult(it.call_id, 'Unbekanntes Werkzeug.'); voice.respond(); break; }
+          let args = {}; try { args = JSON.parse(it.arguments || '{}'); } catch { args = {}; }
+          let out = ''; try { out = await tool.run(args); } catch (error) { out = `Fehler: ${error.message}`; }
+          voice.toolResult(it.call_id, String(out || '')); voice.respond();
           break;
         }
         case 'error': if (e.error?.message && !/active response/i.test(e.error.message)) toast(`Live: ${e.error.message}`, true); break;
@@ -710,7 +765,7 @@
         if (state.settings.realtimeModel === 'auto' && !state.settings.resolvedRealtimeModel) await resolveModel().catch(() => {});
         const instructions = `${await system()}\n\n${P.voiceTutor(state.settings)}`;
         const eagerness = state.settings.eagerness === 'low' ? 'medium' : state.settings.eagerness; // conversation: a bit quicker than the exam
-        const v = new RealtimeVoice({ apiKey: state.settings.apiKey, session: voiceSession({ instructions, tools: [P.LOOKUP_TOOL], createResponse: true, eagerness }), onEvent, onState: render });
+        const v = new RealtimeVoice({ apiKey: state.settings.apiKey, session: voiceSession({ instructions, tools: toolDefs, createResponse: true, eagerness }), onEvent, onState: render });
         await v.connect(); voice = v;
         const past = (history ? history() : []).filter((m) => m.content).slice(-12);
         if (past.length) v.addText('system', `BISHERIGES GESPRÄCH (Text):\n${past.map((m) => `${m.role === 'assistant' ? 'PRÜFER' : 'KANDIDAT'}: ${m.content}`).join('\n').slice(-6000)}`);
@@ -1551,6 +1606,7 @@
         <span class="pill clickable" data-q="Gib mir die Zahlen und Grenzwerte dieser Region als Liste, dann frag mich 5 davon ab.">ZAHLEN</span>
       </div>
       <details class="plain" id="free-threads" style="margin:0 0 14px"><summary>GESPRÄCHE</summary><ul class="clean" id="free-thread-list" style="margin-top:8px"></ul></details>
+      <div id="deck-strip"></div>
       <div class="chat" id="chat"></div>
       <div class="answer-box">
         <textarea class="answer" id="answer" placeholder="Nachricht · ⌘/Ctrl+Enter sendet"></textarea>
@@ -1558,7 +1614,23 @@
       </div>`;
     const chat = $('#chat'); const ta = $('#answer'); let busy = false; let weak = arg === 'weak';
     const weakPill = $('#free-weak');
-    const newThread = () => ({ id: `f${uid()}`, kind: 'frei', title: '', focus: null, context: '', startedAt: Date.now(), updatedAt: Date.now(), n: 0, messages: [], profiled: false });
+    const newThread = () => ({ id: `f${uid()}`, kind: 'frei', title: '', focus: null, context: '', decks: [], startedAt: Date.now(), updatedAt: Date.now(), n: 0, messages: [], profiled: false });
+    const threadDecks = () => (thread.decks || []).map((n) => deckByName(n)).filter(Boolean);
+    function paintDecks() {
+      const list = threadDecks(); const el = $('#deck-strip'); if (!el) return;
+      el.innerHTML = list.length ? list.map((d) => `<div class="deck"><span class="label muted">PRÄSENTATION · ${esc(d.name)}${d.title ? ` · ${esc(d.title)}` : ''}${d.slides ? ` · ${d.slides} FOLIEN` : ''}</span><div class="thumbs">${d.images.map((i) => `<figure><img src="${esc(i.src)}" data-zoom alt=""><figcaption>FOLIE ${i.slide}</figcaption></figure>`).join('')}</div></div>`).join('') : '';
+    }
+    function attachDecks(list) { const names = [...new Set([...(thread.decks || []), ...list.map((d) => d.name)])].slice(0, 3); const changed = names.length !== (thread.decks || []).length; thread.decks = names; if (changed) { paintDecks(); saveThread(); } }
+    function showSlide(n, name) {
+      const list = threadDecks(); const d = (name && deckByName(name)) || list.find((x) => x.images.some((i) => i.slide === n)) || list[0];
+      if (!d) return 'Keine Präsentation geladen: zuerst praesentation_laden.';
+      const fig = slideFigures([n], [d], false);
+      const div = document.createElement('div'); div.className = 'msg examiner'; div.innerHTML = `<div class="who">FOLIE ${n} · ${esc(d.name)}</div>`;
+      if (fig) div.appendChild(fig); else { const b = document.createElement('div'); b.className = 'body faint'; b.textContent = `Folie ${n} hat kein Bild.`; div.appendChild(b); }
+      chat.appendChild(div); div.scrollIntoView({ block: 'nearest' });
+      const txt = slideText(d, n);
+      return `${fig ? `Folie ${n} angezeigt (Bild).` : `Folie ${n} hat kein Bild.`}${txt ? ` Folientext: ${txt.slice(0, 1200)}` : ''}`;
+    }
     let thread = newThread(); let saveTimer = null;
     const selection = () => { const region = $('#free-region').value; const cid = $('#free-case').value; return { region, cid, c: cid ? caseById(cid) : null, weak }; };
     const focusLabel = (sel) => (sel.weak ? `Schwächen${sel.region ? ` · ${sel.region}` : ''}` : sel.c ? `Fall ${sel.c.id.toUpperCase()} · ${sel.c.title} (${sel.c.region})` : sel.region ? `Region ${sel.region}` : '');
@@ -1581,9 +1653,9 @@
       const sel = selection(); thread.focus = { region: sel.region, cid: sel.cid, weak: sel.weak }; thread.title = thread.title || focusLabel(sel) || 'Frei'; thread.updatedAt = Date.now();
       clearTimeout(saveTimer); saveTimer = setTimeout(() => { Store.putSession(thread); listThreads(); }, 600);
     }
-    function startThread() { const old = thread; thread = newThread(); chat.innerHTML = ''; distillThread(old); }
+    function startThread() { const old = thread; thread = newThread(); chat.innerHTML = ''; paintDecks(); distillThread(old); }
     // what the candidate picked: told to the examiner explicitly and used to anchor the retrieval
-    async function freeContext(text) {
+    async function freeContext(text, live = false) {
       const sel = selection(); const label = focusLabel(sel);
       let focus = ''; let plan = ''; let grounding = '';
       if (sel.weak) {
@@ -1601,6 +1673,11 @@
         if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
       }
       if (thread.context) plan = `${plan ? `${plan}\n` : ''}KONTEXT DIESES GESPRÄCHS (woraus es entstand):\n${thread.context}`;
+      // presentations: the examiner knows which exist; one the message names (or "die Präsentation" of the chosen case) is attached whole
+      const found = detectDecks(text, sel); if (found.length) attachDecks(found);
+      const attached = threadDecks();
+      const deckPart = attached.length ? `${await deckBlock(attached)}\n${live ? P.WALKTHROUGH_LIVE : P.WALKTHROUGH}` : (live ? P.WALKTHROUGH_LIVE : P.WALKTHROUGH);
+      plan = `${plan ? `${plan}\n\n` : ''}UNTERLAGEN DES KANDIDATEN · PRÄSENTATIONEN (ganz abrufbar${live ? ' mit praesentation_laden' : ', wenn er eine nennt oder durchgehen will'}):\n${deckList()}\n\n${deckPart}`;
       return { system: P.freeSystem(state.settings, grounding, memoryFor(sel.c, sel.region || null), focus, plan), label, sel };
     }
     function add(role, text) {
@@ -1612,10 +1689,14 @@
     }
     const liveFree = attachLive($('.answer-tools'), {
       add,
-      system: async () => (await freeContext('')).system,
+      system: async () => (await freeContext('', true)).system,
       onTurn: (entry, fresh) => { if (fresh) thread.messages.push(entry); saveThread(); },
       history: () => thread.messages,
       greeting: 'Begrüsse den Kandidaten in einem kurzen Satz, nenne den Fokus und stelle sofort die erste Prüferfrage dazu.',
+      extraTools: [
+        { ...P.DECK_TOOLS[0], run: async (args) => { const d = deckByName(args.name); if (!d) return `Nicht gefunden. Verfügbare Präsentationen:\n${deckList()}`; attachDecks([d]); return (await deckBlock([d])) || 'Kein Text in dieser Präsentation.'; } },
+        { ...P.DECK_TOOLS[1], run: async (args) => showSlide(Number(args.nummer) || 1, args.name) },
+      ],
     });
     // START: new thread, examiner briefed on the chosen focus and begins (re-briefs a running call, connects otherwise)
     $('#free-start').onclick = async () => {
@@ -1643,6 +1724,7 @@
         const { system } = await freeContext(text);
         const full = await chatStream({ system, messages: thread.messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; thread.messages.push({ role: 'assistant', content: full }); saveThread();
+        renderSlideRefs(body, full, threadDecks());
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; }
       busy = false; ta.focus(); body.scrollIntoView({ block: 'nearest' });
@@ -1661,8 +1743,9 @@
       const a = e.target.closest('[data-thread]'); if (!a) return; e.preventDefault();
       const full = await Store.getSession(a.dataset.thread); if (!full) { toast('Gespräch nicht gefunden', true); return; }
       distillThread(thread);
-      thread = { ...full, kind: full.kind || 'frei', messages: full.messages || full.discussion || [], context: full.context || '', n: 0 };
-      chat.innerHTML = ''; for (const m of thread.messages) if (m.content) add(m.role === 'assistant' ? 'examiner' : 'candidate', m.content);
+      thread = { ...full, kind: full.kind || 'frei', messages: full.messages || full.discussion || [], context: full.context || '', decks: full.decks || [], n: 0 };
+      chat.innerHTML = ''; for (const m of thread.messages) if (m.content) { const b = add(m.role === 'assistant' ? 'examiner' : 'candidate', m.content); if (m.role === 'assistant') renderSlideRefs(b, m.content, threadDecks()); }
+      paintDecks();
       if (thread.focus) { $('#free-region').value = thread.focus.region || ''; $('#free-case').value = thread.focus.cid || ''; weak = !!thread.focus.weak; }
       paintStart();
       if (liveFree && liveFree.on()) { liveFree.stop(); await liveFree.start('Das frühere Gespräch wird fortgesetzt: knüpfe in einem Satz daran an und stelle die nächste Frage.'); }

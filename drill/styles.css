@@ -271,3 +271,12 @@ details.plain summary:hover { color: var(--ink); }
 /* FREI start */
 .btn.big { min-height: 48px; padding: 0 22px; font-size: 11px; }
 #free-threads ul.clean li { margin-bottom: 4px; }
+
+/* presentations in FREI */
+.deck { margin: 0 0 14px; padding: 10px 0 6px; border-top: 1px solid var(--line); }
+.deck .thumbs, .slides { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.deck .thumbs figure, .slides figure { margin: 0; }
+.deck .thumbs img { height: 72px; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
+.slides img { max-height: 280px; max-width: 100%; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
+.deck figcaption, .slides figcaption { font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--faint); margin-top: 3px; }
+.slides { margin: 8px 0 4px; }
