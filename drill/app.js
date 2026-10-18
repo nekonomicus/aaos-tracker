@@ -10,6 +10,7 @@
   const CASES = window.CASES;
   const CORPUS = window.CORPUS || {};
   const IMAGES = window.IMAGES || [];
+  const BUILD = '2026-10-18 LIVE'; // shown in the footer, so a stale tab or an old checkout is obvious
   const EXAM_DATE = new Date('2026-11-21T15:00:00+01:00');
   const OPENAI = 'https://api.openai.com/v1';
   const INTERVALS = [0, 1, 3, 7, 14, 30]; // days per Leitner box
@@ -1883,7 +1884,7 @@
 
   // ------------------------------------------------------------------ boot
   function footer() {
-    $('#storage-note').textContent = serverOk ? 'USERDATA/ AUF DIESEM RECHNER' : 'BROWSER-SPEICHER · server.py starten für Dateien';
+    $('#storage-note').textContent = `BUILD ${BUILD} · ${serverOk ? 'USERDATA/ AUF DIESEM RECHNER' : 'BROWSER-SPEICHER · server.py starten für Dateien'}`;
     $('#model-note').textContent = state.settings.apiKey ? `${activeModel().toUpperCase()}${state.settings.live ? ` · LIVE ${realtimeModel().toUpperCase()}` : ''} · ${state.settings.strictness.toUpperCase()}` : 'KEIN API-SCHLÜSSEL · ⚙';
     $('#countdown').textContent = `21 NOV 2026 · T−${daysLeft()}`;
   }
