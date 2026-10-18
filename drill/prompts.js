@@ -41,33 +41,41 @@
       key: 'anamnese_untersuchung',
       label: 'ANAMNESE & KLINISCHE UNTERSUCHUNG',
       opener: 'Sie sehen diesen Patienten zum ersten Mal. Was möchten Sie anamnestisch wissen, und wie untersuchen Sie ihn?',
+      openerEn: 'You are seeing this patient for the first time. What do you want to know from the history, and how do you examine him?',
       schema: 'Anamnese (Mechanismus / Beginn, Zeitpunkt, Schmerz, Funktion, Vorerkrankungen, Medikamente inkl. Antikoagulation, Nikotin, Beruf / Sport / Anspruch) → Untersuchung (Inspektion & Weichteile, Palpation, Bewegungsumfang, Stabilität, Spezialtests, pDMS / neurovaskulär, Begleitverletzungen).',
     },
     {
       key: 'bildgebung_zusatz',
       label: 'BILDGEBUNG & ZUSATZUNTERSUCHUNGEN',
       opener: 'Befunden Sie das vorliegende Bildmaterial systematisch. Welche Zusatzuntersuchungen verlangen Sie, und warum?',
+      openerEn: 'Describe the available imaging systematically. Which additional investigations do you request, and why?',
       schema: 'Modalität & Ebenen → systematische Befundbeschreibung (Lokalisation, Morphologie, Dislokation, Gelenkbeteiligung, indirekte Zeichen) → Zusatzuntersuchungen mit Begründung (CT, MRI, Stressaufnahmen, Labor, Konsil).',
     },
     {
       key: 'dd_diagnose_prognose',
       label: 'DIFFERENTIALDIAGNOSE, DIAGNOSE & PROGNOSE',
       opener: 'Wie lautet Ihre Diagnose mit Klassifikation? Welche Differentialdiagnosen erwägen Sie, und wie schätzen Sie die Prognose ein?',
+      openerEn: 'What is your diagnosis with classification? Which differential diagnoses do you consider, and how do you judge the prognosis?',
       schema: 'Diagnose exakt benennen → Klassifikation (Name, Typ, und was der Typ für die Therapie bedeutet) → 2–3 Differentialdiagnosen → Prognose (Heilung, spezifische Risiken wie Nekrose / Arthrose / Instabilität, Funktion).',
     },
     {
       key: 'therapie_indikation_aufklaerung',
       label: 'THERAPEUTISCHE OPTIONEN, INDIKATION, RISIKEN & AUFKLÄRUNG',
       opener: 'Welche Behandlungsoptionen gibt es? Was empfehlen Sie diesem Patienten, mit welcher Begründung, und worüber klären Sie ihn auf?',
+      openerEn: 'What are the treatment options? What do you recommend for this patient, with what reasoning, and what do you inform him about?',
       schema: 'Optionen konservativ vs. operativ (konkrete Verfahren) → Empfehlung mit Indikationskriterien und Zahlen → Timing → Technik in 3 Sätzen (Lagerung, Zugang, Fixationsprinzip) → Risiken / Aufklärung (spezifische Komplikationen mit Häufigkeit).',
     },
     {
       key: 'nachsorge',
       label: 'NACHSORGE',
       opener: 'Wie sieht die Nachbehandlung aus?',
+      openerEn: 'What does the aftercare look like?',
       schema: 'Belastung & Bewegung mit Zeitplan → Ruhigstellung / Orthese → Thromboseprophylaxe & Medikation → Kontrollen (klinisch, radiologisch, wann) → Rückkehr zu Arbeit / Sport → worauf achten (Komplikationen erkennen).',
     },
   ];
+
+  const opener = (i, settings) => (settings?.lang === 'en' && STATIONS[i]?.openerEn) || STATIONS[i]?.opener || '';
+  const CLOSING = { de: 'Die Fallbesprechung ist damit beendet. Vielen Dank.', en: 'The case discussion is concluded. Thank you.' };
 
   const GRADE_ANCHORS = `Notenskala (schweizerisch, 6 = beste Note, 1 = schlechteste):
 6 = vollständig und in der erwarteten Reihenfolge, präzise Terminologie, die entscheidungsrelevante Klassifikation korrekt benannt UND auf den Fall angewendet, die Grenzwerte genannt, die die Entscheidung tragen, Entscheidung klar und begründet, sicher. Wird selten vergeben.
@@ -88,7 +96,7 @@
   const PRINCIPLES = `MASSSTAB (Erstprinzipien vor Detail): Eine sehr gute Antwort ist kurz, geordnet und sicher: (1) Gefährliches zuerst erkannt oder ausgeschlossen (Notfall, Weichteile, Gefässe / Nerven, Kompartment, Infekt, Polytrauma), (2) Struktur in der erwarteten Reihenfolge, (3) das Standardvorgehen eines Schweizer Spitals mit einer klaren Entscheidung für diesen Patienten, (4) die eine entscheidungsrelevante Klassifikation mit ihrer Konsequenz, (5) die ein bis drei Grenzwerte, die die Entscheidung tragen, (6) Aufklärung und Nachsorge konkret. Raritäten, Studiennamen, lange Prozentlisten und Alternativklassifikationen geben keinen Bonus und ersetzen nichts davon; wer sie nennt, aber das Grundgerüst nicht hat, bleibt ungenügend.`;
 
   // Swiss specifics an examiner expects where they fit the case (verified Oct 2026, see README).
-  const SWISS = `SCHWEIZ-STANDARD (erwarten, wo es zum Fall passt): perioperative Antibiotikaprophylaxe nach Swissnoso (Cefuroxim 1.5 g i.v., alternativ Cefazolin 2 g, 30–60 min vor Schnitt, Einmalgabe); Thromboseprophylaxe mit niedermolekularem Heparin ab Ruhigstellung oder Teilbelastung der unteren Extremität bis zur sicheren Vollbelastung, nach Hüft- und Knieprothese nach Hausstandard (z. B. Rivaroxaban, 5 bzw. 2 Wochen); Aufklärung mündlich und schriftlich, dokumentiert, mit Bedenkzeit vor Wahleingriffen, Inhalt: Diagnose, Optionen inkl. konservativ, Ablauf, typische Risiken, Nachbehandlung; Unfall = UVG: Unfallmeldung über den Arbeitgeber, Arbeitsunfähigkeitszeugnis in Prozent mit Dauer, SUVA / Unfallversicherer als Kostenträger, Kostengutsprache für Rehabilitation; Physiotherapie per Verordnung à 9 Sitzungen; Fahreignung: nicht fahren mit Gips / Orthese am Bremsbein oder unter Opiaten; Hausarzt für Wund- und Fadenkontrolle (Tag 12–14), Röntgenkontrollen typisch nach 6 und 12 Wochen; nach Fragilitätsfraktur Osteoporoseabklärung (DXA, Vitamin D, Bisphosphonat oder Denosumab, SVGO); Tetanusschutz bei offenen Wunden; Nikotinstopp wegen Heilungsstörung; Metallentfernung nicht routinemässig, nur bei Beschwerden.`;
+  const SWISS = `SCHWEIZ-STANDARD (erwarten, wo es zum Fall passt): perioperative Antibiotikaprophylaxe nach Swissnoso (Cefuroxim 1.5 g i.v., alternativ Cefazolin 2 g, 30–60 min vor Schnitt, Einmalgabe); Thromboseprophylaxe mit niedermolekularem Heparin ab Ruhigstellung oder Teilbelastung der unteren Extremität bis zur sicheren Vollbelastung, nach Hüft- und Knieprothese nach Hausstandard (z. B. Rivaroxaban, 5 bzw. 2 Wochen); Aufklärung mündlich und schriftlich, dokumentiert, mit Bedenkzeit vor Wahleingriffen, Inhalt: Diagnose, Optionen inkl. konservativ, Ablauf, typische Risiken, Nachbehandlung; Unfall bei Erwerbstätigen = UVG: Unfallmeldung über den Arbeitgeber, Arbeitsunfähigkeitszeugnis in Prozent mit Dauer, SUVA / Unfallversicherer als Kostenträger, Kostengutsprache für Rehabilitation; bei Nichterwerbstätigen (Rentner, Kinder, Studierende, Teilzeit unter 8 h / Woche beim Nichtberufsunfall) zahlt die Krankenkasse nach KVG, keine Arbeitgebermeldung; Physiotherapie per Verordnung à 9 Sitzungen; Fahreignung: nicht fahren mit Gips / Orthese am Bremsbein oder unter Opiaten; Hausarzt für Wund- und Fadenkontrolle (Tag 12–14), Röntgenkontrollen typisch nach 6 und 12 Wochen; nach Fragilitätsfraktur Osteoporoseabklärung (DXA, Vitamin D, Bisphosphonat oder Denosumab, SVGO); Tetanusschutz bei offenen Wunden; Nikotinstopp wegen Heilungsstörung; Metallentfernung beim Erwachsenen nicht routinemässig, nur bei Beschwerden; beim Kind ESIN, K-Drähte und fugennahe Implantate nach Konsolidation planmässig entfernen.`;
 
   function langLine(settings) {
     return settings.lang === 'en'
@@ -446,18 +454,18 @@ ${context}`;
     return `STIMME: Du sprichst live mit dem Kandidaten, wie am Prüfungstisch. Antworte sofort und kurz: höchstens zwei gesprochene Sätze, dann genau eine Frage, dann schweigen und zuhören. Keine Aufzählungen, keine Sonderzeichen, keine Anführungszeichen, nichts vorlesen, was wie eine Liste klingt. Wenn der Kandidat dich unterbricht, hör auf zu sprechen und hör zu. Wenn der Kandidat einen Befund erfragt, gib ihn in einem Satz aus dem Dossier und wiederhole dann die offene Frage. Wenn du eine neue Station eröffnest, verwende den vorgegebenen Wortlaut. ${settings.lang === 'en' ? 'Speak English.' : 'Sprich Hochdeutsch mit neutraler Schweizer Färbung, ruhig, sachlich, ohne Lob und ohne Füllwörter.'}`;
   }
 
-  function voiceOpen(stationIndex, resumed) {
+  function voiceOpen(stationIndex, resumed, settings) {
     const station = STATIONS[stationIndex];
-    return `[SYSTEM] ${resumed ? 'Die Prüfung wird nach einer Unterbrechung fortgesetzt. Sage das in einem Satz und' : 'Die Fallbesprechung beginnt. Begrüsse den Kandidaten in einem Satz, sage, dass er die Unterlagen und das Bild vor sich hat, und'} stelle dann wörtlich diese Frage (Station ${stationIndex + 1} von 5, ${station.label}): "${station.opener}"`;
+    return `[SYSTEM] ${resumed ? 'Die Prüfung geht weiter. Sage das in einem Satz und' : 'Die Fallbesprechung beginnt. Begrüsse den Kandidaten in einem Satz, sage, dass er die Unterlagen und die Bilddokumentation vor sich hat, und'} stelle dann wörtlich diese Frage (Station ${stationIndex + 1} von 5, ${station.label}): "${opener(stationIndex, settings)}"`;
   }
 
-  function voiceTurn(stationIndex, followupNo, followupsTotal, exhausted, isLast, passages) {
+  function voiceTurn(stationIndex, followupNo, followupsTotal, exhausted, isLast, passages, settings) {
     const station = STATIONS[stationIndex];
     const next = STATIONS[stationIndex + 1];
     let task;
     if (!exhausted) task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen. Sonst: höchstens ein kurzer Satz Reaktion, dann Nachfrage ${followupNo} von ${followupsTotal} zu dieser Station, gezielt auf die schwächste Stelle der letzten Antwort. Genau eine Frage.`;
-    else if (!isLast) task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen und die Station NICHT wechseln. Sonst: höchstens ein kurzer Satz Reaktion ohne Wertung, dann eröffne wörtlich die nächste Station (Station ${stationIndex + 2} von 5, ${next.label}): "${next.opener}"`;
-    else task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen und die Prüfung NICHT beenden. Sonst: höchstens ein kurzer Satz Reaktion ohne Wertung, dann sage wörtlich: "Die Fallbesprechung ist damit beendet. Vielen Dank."`;
+    else if (!isLast) task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen und die Station NICHT wechseln. Sonst: höchstens ein kurzer Satz Reaktion ohne Wertung, dann eröffne wörtlich die nächste Station (Station ${stationIndex + 2} von 5, ${next.label}): "${opener(stationIndex + 1, settings)}"`;
+    else task = `Falls der Kandidat nur einen Befund erfragt hat: Auskunft aus dem Dossier in einem Satz, dann die offene Frage wiederholen und die Prüfung NICHT beenden. Sonst: höchstens ein kurzer Satz Reaktion ohne Wertung, dann sage wörtlich: "${CLOSING[settings?.lang === 'en' ? 'en' : 'de']}"`;
     return `[SYSTEM · STATION ${stationIndex + 1}/5 · ${station.label}] Erwartete Struktur der Antwort: ${station.schema}
 ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für dich; daran messen, nichts verraten):\n<<<\n${passages}\n>>>` : ''}`;
   }
@@ -473,7 +481,7 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
   };
 
   window.PROMPTS = {
-    PRINCIPLES, SWISS, VOICE_TRANSCRIBE_PROMPT, LOOKUP_TOOL, voiceExaminer, voiceOpen, voiceTurn, voiceTutor,
+    PRINCIPLES, SWISS, VOICE_TRANSCRIBE_PROMPT, LOOKUP_TOOL, CLOSING, opener, voiceExaminer, voiceOpen, voiceTurn, voiceTutor,
     REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,

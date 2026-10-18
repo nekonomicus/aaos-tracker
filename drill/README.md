@@ -97,9 +97,9 @@ Nachsorge concretely. Rarities, study names, percentage lists and alternative cl
 give no bonus and replace none of that. The grade anchors, the strictness levels, the examiner's
 drill-down (numbers only where they carry the decision), the dossier solution, the feedback and
 the quiz grader all use this bar. `SWISS` adds the Swiss specifics an examiner expects where they
-fit the case (Swissnoso prophylaxis, thromboprophylaxis practice, Aufklärung, UVG / SUVA,
+fit the case (Swissnoso prophylaxis, thromboprophylaxis practice, Aufklärung, UVG / SUVA vs. KVG,
 Physiotherapie-Verordnung, Fahreignung, Hausarzt follow-up, osteoporosis work-up, tetanus,
-nicotine, no routine metal removal).
+nicotine, no routine metal removal in adults, planned removal in children).
 
 ## Sources
 

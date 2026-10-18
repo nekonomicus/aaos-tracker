@@ -242,7 +242,7 @@
       max_output_tokens: maxTokens, truncation: 'auto',
     };
     if (tools.length) { session.tools = tools; session.tool_choice = 'auto'; }
-    if (/^gpt-realtime-(?:[2-9]|\d{2})/.test(model)) session.reasoning = { effort: 'minimal' }; // reasoning models: answer, don't ponder
+    if (/^gpt-realtime-(?!\d{4}-)(?:[2-9]|\d{2})/.test(model)) session.reasoning = { effort: 'minimal' }; // reasoning models (2, 2.1 …), not the dated v1 snapshot: answer, don't ponder
     return session;
   }
   // read anything aloud on demand: the examiner's TTS voice with a key, the browser voice without
@@ -614,14 +614,16 @@
       switch (e.type) {
         case 'conversation.item.added': case 'conversation.item.created': {
           const it = e.item; if (!it || it.type !== 'message' || it.role !== 'user' || users.has(it.id) || !(it.content || []).some((c) => c.type === 'input_audio')) break;
-          users.set(it.id, { el: add('candidate', '…'), text: '' }); break;
+          const entry = { role: 'user', content: '' }; onTurn(entry, true); // history slot in speaking order; the text follows with the transcript
+          users.set(it.id, { el: add('candidate', '…'), text: '', entry }); break;
         }
         case 'conversation.item.input_audio_transcription.delta': { const u = users.get(e.item_id); if (u) { u.text += e.delta || ''; u.el.textContent = u.text; } break; }
-        case 'conversation.item.input_audio_transcription.completed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); const text = (e.transcript || u.text || '').trim() || '(unverständlich)'; u.el.textContent = text; onTurn('user', text); break; }
+        case 'conversation.item.input_audio_transcription.completed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); u.entry.content = (e.transcript || u.text || '').trim() || '(unverständlich)'; u.el.textContent = u.entry.content; onTurn(u.entry, false); break; }
+        case 'conversation.item.input_audio_transcription.failed': { const u = users.get(e.item_id); if (!u) break; users.delete(e.item_id); u.entry.content = '(Transkription fehlgeschlagen)'; u.el.textContent = u.entry.content; onTurn(u.entry, false); break; }
         case 'response.created': ex = null; exText = ''; break;
         case 'response.output_audio_transcript.delta': { if (!ex) ex = add('examiner', ''); exText += e.delta || ''; ex.textContent = exText; break; }
         case 'response.output_audio_transcript.done': { if (ex) { exText = (e.transcript || exText).trim(); ex.textContent = exText; } break; }
-        case 'response.done': { if (exText.trim()) onTurn('assistant', exText.trim()); ex = null; exText = ''; break; }
+        case 'response.done': { if (exText.trim()) onTurn({ role: 'assistant', content: exText.trim() }, true); ex = null; exText = ''; break; }
         case 'response.output_item.done': {
           const it = e.item; if (it?.type !== 'function_call' || it.name !== 'nachschlagen' || !voice) break;
           let q = ''; try { q = JSON.parse(it.arguments || '{}').frage || ''; } catch { q = ''; }
@@ -633,6 +635,7 @@
         case 'fmh.disconnected': stop(); toast('Live-Verbindung unterbrochen', true); break;
         default: break;
       }
+      return undefined;
     };
     toggle.onclick = async () => {
       if (voice) return stop();
@@ -668,10 +671,10 @@
     const add = (role, text) => { const div = document.createElement('div'); div.className = `msg ${role}`; div.innerHTML = `<div class="who">${role === 'examiner' ? 'PRÜFER <button class="say" type="button" title="Vorlesen">▶</button>' : 'DU'}</div><div class="body"></div>`; const body = div.querySelector('.body'); body.textContent = text; const b = div.querySelector('.say'); if (b) b.onclick = () => say(body.textContent); chat.appendChild(div); return body; };
     for (const m of holder.discussion) add(m.role === 'assistant' ? 'examiner' : 'candidate', m.content);
     wireMic(container.querySelector('#d-mic'), ta);
-    attachLive(container.querySelector('.answer-tools'), {
+    const liveChat = attachLive(container.querySelector('.answer-tools'), {
       add,
       system: async () => { const passages = await lookup(sourceQuery, 4000, { k: 5 }).catch(() => ''); return P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab):\n<<<\n${passages}\n>>>` : ''); },
-      onTurn: (role, text) => { holder.discussion.push({ role, content: text }); if (onChange) onChange(); },
+      onTurn: (entry, fresh) => { if (fresh) holder.discussion.push(entry); if (onChange) onChange(); },
       history: () => holder.discussion,
       greeting: 'Sage in einem Satz, dass der Kandidat jetzt zur Bewertung nachfragen kann.',
     });
@@ -682,12 +685,13 @@
       const body = add('examiner', ''); body.innerHTML = '<span class="spinner"></span>';
       try {
         const passages = await lookup(`${sourceQuery} ${text}`, 4000, { k: 5 }).catch(() => '');
-        const full = await chatStream({ system: P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab; mit [Quelle: …] zitieren):\n<<<\n${passages}\n>>>` : ''), messages: holder.discussion, onDelta: (t) => { body.textContent = t; } });
+        const full = await chatStream({ system: P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab; mit [Quelle: …] zitieren):\n<<<\n${passages}\n>>>` : ''), messages: holder.discussion.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; holder.discussion.push({ role: 'assistant', content: full });
         if (onChange) onChange();
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; holder.discussion.pop(); }
       busy = false; ta.focus(); body.scrollIntoView({ block: 'nearest' });
     };
+    return liveChat;
   }
   function latestTip() { const log = state.methodLog || []; return log.length ? log[log.length - 1].tipp : ''; }
   function answerMetrics(session) {
@@ -907,7 +911,7 @@
     }
     function openStation(i) {
       setStation(i);
-      const opener = P.STATIONS[i].opener;
+      const opener = P.opener(i, state.settings);
       session.messages.push({ role: 'assistant', content: JSON.stringify({ reaktion: '', frage: opener }) });
       addMsg('examiner', opener);
     }
@@ -925,7 +929,7 @@
     // before the examiner answers, the transcript is captured from both sides, and the grading at the
     // end runs on the strong chat model exactly as in text mode.
     const live = {
-      voice: null, on: false, connecting: false, pending: null, current: null, users: new Map(), ex: null, exEntry: null,
+      voice: null, on: false, connecting: false, pending: null, current: null, queued: [], users: new Map(), ex: null, exEntry: null,
       async start(resumed) {
         if (this.on || this.connecting || !window.RealtimeVoice || !state.settings.apiKey) return false;
         this.connecting = true; this.render({});
@@ -939,17 +943,17 @@
           toast(`Live-Prüfer nicht verbunden (${error.message}) · weiter per Text / ● SPRECHEN`, true);
           return false;
         }
-        this.connecting = false; this.on = true; this.users.clear(); this.pending = null; this.render(this.voice.state);
+        this.connecting = false; this.on = true; this.users.clear(); this.pending = null; this.current = null; this.queued = []; this.render(this.voice.state);
         setStation(session.station);
         const spoken = session.transcript.filter((m) => m.role !== 'system');
-        if (resumed && spoken.length) this.voice.addText('system', `BISHERIGER VERLAUF DIESER PRÜFUNG (die zuletzt gestellte Frage gilt weiter):\n${spoken.map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n').slice(-6000)}`);
-        this.voice.addText('system', P.voiceOpen(session.station, resumed && spoken.length > 0));
+        if (resumed && spoken.length) this.voice.addText('system', `BISHERIGER VERLAUF DIESER PRÜFUNG (die aktuelle Station beginnt mit ihrer Eröffnungsfrage neu):\n${spoken.map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n').slice(-6000)}`);
+        this.voice.addText('system', P.voiceOpen(session.station, resumed && spoken.length > 0, state.settings));
         this.voice.respond();
         return true;
       },
       stop(final) {
         if (this.voice) { this.voice.close(); this.voice = null; }
-        const was = this.on; this.on = false; this.connecting = false; this.pending = null; this.current = null; this.render({});
+        const was = this.on; this.on = false; this.connecting = false; this.pending = null; this.current = null; this.queued = []; this.render({});
         // back to text mode: the chat model gets the spoken turns as its history
         if (was && !final && session.status === 'laufend') session.messages = session.transcript.filter((m) => m.role !== 'system').map((m) => (m.role === 'examiner' ? { role: 'assistant', content: JSON.stringify({ reaktion: '', frage: m.text }) } : { role: 'user', content: m.text.replace(/^Rückfrage: /, '') }));
       },
@@ -968,7 +972,10 @@
       show(u) { u.entry.text = (u.question ? 'Rückfrage: ' : '') + (u.text || '…'); u.el.textContent = u.entry.text; },
       uncount(u) { if (u.counted) { u.counted = false; session.followup = Math.max(0, session.followup - 1); } u.question = true; this.show(u); },
       newTurn(text, question) { const el = addMsg('candidate', ''); const u = { el, entry: session.transcript[session.transcript.length - 1], text, question: !!question, counted: false, done: false }; this.show(u); return u; },
+      go(pending) { if (pending === 'finish') { Store.putSession(session); finish(); return true; } setStation(session.station + 1); return false; },
       async turn(u) {
+        if (this.current || this.voice?.state.responding) { this.queued.push(u); return; } // one turn at a time; the next runs after response.done
+        this.current = u;
         const i = session.station; const isLast = i === P.STATIONS.length - 1;
         if (!u.question) { session.followup += 1; u.counted = true; }
         const exhausted = u.counted && session.followup > followupsTotal;
@@ -976,9 +983,9 @@
         const passages = await lookup(`${caseItem.title} ${P.STATIONS[i].label} ${lastQ} ${u.text || ''}`, 2500, { k: 3 }).catch(() => '');
         const control = u.question
           ? `[SYSTEM · STATION ${i + 1}/5] Der Kandidat hat eine Rückfrage gestellt: in einem Satz aus dem Dossier beantworten, dann die offene Frage wiederholen.`
-          : P.voiceTurn(i, Math.min(session.followup, followupsTotal), followupsTotal, exhausted, isLast, passages);
-        this.pending = exhausted ? (isLast ? 'finish' : 'next') : null; this.current = u;
-        if (!this.voice) return;
+          : P.voiceTurn(i, Math.min(session.followup, followupsTotal), followupsTotal, exhausted, isLast, passages, state.settings);
+        this.pending = exhausted ? (isLast ? 'finish' : 'next') : null;
+        if (!this.voice) { this.current = null; return; }
         this.voice.addText('system', control); this.voice.respond();
         Store.putSession(session);
       },
@@ -995,7 +1002,9 @@
           case 'conversation.item.input_audio_transcription.completed': {
             const u = this.users.get(e.item_id); if (!u) break; this.users.delete(e.item_id);
             u.text = (e.transcript || u.text || '').trim() || '(unverständlich)';
-            if (!u.done && looksLikeQuestion(u.text)) this.uncount(u); else this.show(u);
+            const question = looksLikeQuestion(u.text);
+            if (u.decide) { const d = u.decide; u.decide = null; if (question) this.uncount(u); else { this.show(u); if (this.go(d)) return; } } // examiner answered before the transcript: decide now
+            else if (!u.done && question) this.uncount(u); else this.show(u);
             Store.putSession(session); break;
           }
           case 'conversation.item.input_audio_transcription.failed': { const u = this.users.get(e.item_id); if (u) { this.users.delete(e.item_id); u.text = '(Transkription fehlgeschlagen)'; this.show(u); } break; }
@@ -1009,10 +1018,18 @@
             const said = this.exEntry?.text || ''; this.ex = null; this.exEntry = null;
             const u = this.current; const pending = this.pending; this.current = null; this.pending = null;
             if (u) u.done = true;
-            if (pending === 'next' && mentions(said, P.STATIONS[session.station + 1]?.opener)) setStation(session.station + 1);
-            else if (pending === 'finish' && /beendet|vielen dank|concluded|thank you/i.test(said)) { Store.putSession(session); finish(); return; }
-            else if (pending && u) this.uncount(u); // the examiner stayed on the station (Rückfrage, or he ignored the cue): this turn did not count
-            Store.putSession(session); break;
+            if (pending && u) {
+              const status = e.response?.status;
+              const cue = pending === 'finish' ? /beendet|vielen dank|concluded|thank you/i.test(said) : mentions(said, P.opener(session.station + 1, state.settings));
+              if (cue) { if (this.go(pending)) return; }
+              else if (status === 'cancelled' || status === 'failed') { /* interrupted before the cue: the next turn re-issues it */ }
+              else if (u.question || (u.text && looksLikeQuestion(u.text))) this.uncount(u); // Rückfrage: the examiner stayed on the station
+              else if (u.text) { if (this.go(pending)) return; } // a real answer and the cue was given: trust the cue even if he paraphrased it
+              else u.decide = pending; // transcript not in yet: decide when it arrives
+            }
+            Store.putSession(session);
+            const next = this.queued.shift(); if (next) this.turn(next);
+            break;
           }
           case 'error': if (e.error?.message && !/active response/i.test(e.error.message)) toast(`Live: ${e.error.message}`, true); break;
           case 'fmh.disconnected': this.stop(false); toast('Live-Verbindung unterbrochen · ● LIVE verbindet neu', true); break;
@@ -1279,10 +1296,11 @@
     };
   }
   function runQuiz(sess, stage) {
-    let busy = false;
+    let busy = false; let liveChat = null;
     const save = () => saveSession('quiz', sess);
     const counts = () => `${sess.results.filter((r) => r === 2).length} ✓ · ${sess.results.filter((r) => r === 1).length} ~ · ${sess.results.filter((r) => r === 0).length} ✗`;
     function show() {
+      if (liveChat) { liveChat.stop(); liveChat = null; }
       const item = itemsById([sess.ids[sess.i]])[0];
       if (sess.i >= sess.ids.length) return summary();
       if (!item) { sess.i += 1; save(); return show(); }
@@ -1348,7 +1366,7 @@
         b.disabled = false;
       };
       $('#btn-fix').onclick = () => { const s = stats(item.id); s.flag = !s.flag; state.items[item.id] = s; Store.saveState(); toast(s.flag ? 'Markiert · unter STATUS' : 'Markierung entfernt'); };
-      discussion($('#q-discuss'), `FRAGE: ${item.q}\nMUSTERANTWORT: ${v.modelAnswer}\nANTWORT DES KANDIDATEN: ${v.answer || '(keine)'}\nBEWERTUNG: ${score}/2 · ${v.urteil}${v.fehlend?.length ? ` · fehlt: ${v.fehlend.join(', ')}` : ''}`, v, save, `${item.topic || ''} ${item.q}`);
+      liveChat = discussion($('#q-discuss'), `FRAGE: ${item.q}\nMUSTERANTWORT: ${v.modelAnswer}\nANTWORT DES KANDIDATEN: ${v.answer || '(keine)'}\nBEWERTUNG: ${score}/2 · ${v.urteil}${v.fehlend?.length ? ` · fehlt: ${v.fehlend.join(', ')}` : ''}`, v, save, `${item.topic || ''} ${item.q}`);
       if (state.settings.readAloud) readAloud(v.modelAnswer);
     }
     function onKey(e) { if (sess.verdict && e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') { e.preventDefault(); next(); } }
@@ -1462,7 +1480,7 @@
         if (cid) grounding = await groundingForCase(caseById(cid), 9000); else if (region) grounding = await groundingForRegion(region, 7000);
         return P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null));
       },
-      onTurn: (role, text) => messages.push({ role, content: text }),
+      onTurn: (entry, fresh) => { if (fresh) messages.push(entry); },
       history: () => messages,
       greeting: 'Begrüsse den Kandidaten in einem kurzen Satz und frage, womit ihr anfangt: Abfragen, Fall oder Erklärung.',
     });
@@ -1477,7 +1495,7 @@
         else if (region) grounding = await groundingForRegion(region, 9000, text);
         const passages = await lookup(text, cid || region ? 4000 : 9000, { k: 8 }).catch(() => '');
         if (passages) grounding = `${passages}${grounding ? `\n\n${grounding}` : ''}`;
-        const full = await chatStream({ system: P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null)), messages, onDelta: (t) => { body.textContent = t; } });
+        const full = await chatStream({ system: P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null)), messages: messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; messages.push({ role: 'assistant', content: full });
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; }
