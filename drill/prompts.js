@@ -17,8 +17,8 @@
   ];
 
   const TYPES = ['klassifikation', 'terminologie', 'konzept', 'zahl', 'technik', 'anatomie'];
+  const FILTER_TYPES = TYPES.concat('bild');
 
-  // Case region (from the case list) → drill regions used for grounding and filters.
   const CASE_REGION_TO_DRILL = {
     'Trauma Schulter/Arm': ['Schulter & Ellbogen', 'Unterarm & Hand', 'Trauma Allgemein & AO'],
     'Trauma Wirbelsäule': ['Wirbelsäule', 'Trauma Allgemein & AO'],
@@ -46,7 +46,7 @@
     {
       key: 'bildgebung_zusatz',
       label: 'BILDGEBUNG & ZUSATZUNTERSUCHUNGEN',
-      opener: 'Beschreiben Sie das vorliegende Bildmaterial systematisch. Welche Zusatzuntersuchungen verlangen Sie, und warum?',
+      opener: 'Befunden Sie das vorliegende Bildmaterial systematisch. Welche Zusatzuntersuchungen verlangen Sie, und warum?',
       schema: 'Modalität & Ebenen → systematische Befundbeschreibung (Lokalisation, Morphologie, Dislokation, Gelenkbeteiligung, indirekte Zeichen) → Zusatzuntersuchungen mit Begründung (CT, MRI, Stressaufnahmen, Labor, Konsil).',
     },
     {
@@ -70,17 +70,17 @@
   ];
 
   const GRADE_ANCHORS = `Notenskala (schweizerisch, 6 = beste Note, 1 = schlechteste):
-6 = vollständig, klar strukturiert, präzise Terminologie, Klassifikation korrekt benannt und angewendet, Entscheidungen begründet.
-5 = gut, kleine Lücken oder leichte Unschärfen, Struktur erkennbar.
-4 = genügend: die Kernpunkte sind da, aber unvollständig, unstrukturiert oder ohne Klassifikation / Zahlen.
-3 = ungenügend: wesentliche Lücken oder ein relevanter Fehler.
+6 = vollständig, in der erwarteten Reihenfolge, präzise Terminologie, Klassifikation korrekt benannt UND auf den Fall angewendet, Zahlen und Grenzwerte genannt, Entscheidungen begründet. Wird selten vergeben.
+5 = gut: ein bis zwei kleinere Lücken, Struktur klar.
+4 = genügend: die Kernpunkte sind vorhanden, aber unvollständig, ungeordnet, ohne Klassifikation oder ohne Zahlen.
+3 = ungenügend: wesentliche Lücken oder ein relevanter fachlicher Fehler.
 2 = grobe Fehler oder potentiell gefährliche Entscheidung.
 1 = keine brauchbare Antwort.`;
 
   const STRICTNESS = {
-    mild: 'Benote wohlwollend: unvollständige, aber im Kern richtige Antworten bekommen eine 4–5.',
-    standard: 'Benote wie ein erfahrener Prüfer: eine 6 nur bei lückenloser, strukturierter Antwort; fehlende Klassifikation oder fehlende Zahlen kosten eine Note.',
-    hart: 'Benote streng: eine 6 gibt es praktisch nie; jede fehlende Klassifikation, jede fehlende Zahl und jede unstrukturierte Antwort kostet mindestens eine Note; Unsicherheit und Geschwafel werden abgestraft.',
+    mild: 'Benote wohlwollend: im Kern richtige, unvollständige Antworten bekommen eine 4–5.',
+    standard: 'Benote wie ein erfahrener Prüfer: 6 nur bei lückenloser, strukturierter Antwort; fehlende Klassifikation oder fehlende Zahlen kosten eine Note.',
+    hart: 'Benote streng und ohne Bonus für Bemühen: 6 praktisch nie; jede fehlende Klassifikation, jeder fehlende Grenzwert, jede falsche Zahl und jede Antwort ohne erkennbare Struktur kostet mindestens eine Note; Geschwafel, Hedging ("vielleicht", "man könnte") und Auflistungen ohne Entscheidung werden abgestraft; eine Antwort, die die Frage nicht trifft, zählt als nicht beantwortet.',
   };
 
   function langLine(settings) {
@@ -91,49 +91,59 @@
 
   function groundingBlock(grounding) {
     if (!grounding) return '';
-    return `\n\nREFERENZMATERIAL (aus den Präsentationen und Unterlagen des Kandidaten; benutze es für Fakten, Zahlen, Klassifikationen und Vorgehen, ergänze mit gesichertem Lehrbuchwissen, Debrunner / AO / Miller / Hefti):\n<<<\n${grounding}\n>>>`;
+    return `\n\nREFERENZMATERIAL (Präsentationen und Unterlagen des Kandidaten; Fakten, Zahlen, Klassifikationen und Vorgehen daraus benutzen, mit gesichertem Lehrbuchwissen ergänzen: Debrunner, AO, Miller, Hefti, Hoppenfeld):\n<<<\n${grounding}\n>>>`;
+  }
+
+  function memoryBlock(memory) {
+    if (!memory) return '';
+    const parts = [];
+    if (memory.caseGaps?.length) parts.push(`Frühere Lücken dieses Kandidaten bei genau diesem Thema (gezielt wieder prüfen): ${memory.caseGaps.join(' | ')}`);
+    if (memory.weakTopics?.length) parts.push(`Schwache Themen des Kandidaten in dieser Region laut Abfrage-Statistik (bevorzugt nachbohren): ${memory.weakTopics.join(', ')}`);
+    return parts.length ? `\n\nGEDÄCHTNIS:\n${parts.join('\n')}` : '';
   }
 
   // ------------------------------------------------------------------ EXAM
-  function examinerSystem(settings, caseItem, dossier, grounding) {
+  function examinerSystem(settings, caseItem, dossier, grounding, memory) {
     return `Du bist Prüfungsexperte an der Facharztprüfung Orthopädische Chirurgie und Traumatologie des Bewegungsapparates (swiss orthopaedics), Schlussprüfung 2. Teil, mündliche klinische Fallbesprechung. Zwei Experten prüfen vier unbekannte Patienten à 15 Minuten anhand von Patientenunterlagen mit Bilddokumentation. Bewertet werden in dieser Reihenfolge: (1) Anamnese / klinische Untersuchung, (2) Interpretation des Bildmaterials und Zusatzuntersuchungen, (3) Differentialdiagnose, Diagnose, Prognose, (4) therapeutische Optionen, Risiken, Indikation, Aufklärung, (5) Nachsorge.
 
 DEIN VERHALTEN (unveränderlich):
-- Du prüfst, du lehrst nicht. Während der Prüfung keine Erklärungen, kein Lob, keine Korrekturen, keine Musterantworten.
-- Reaktionen sind knapp und neutral ("Gut.", "Weiter.", "Konkreter bitte.") oder leer.
-- Pro Zug genau EINE Frage. Die Frage ist konkret und bohrt nach: Klassifikation benennen und den Typ bestimmen, Begriff definieren, Zahl / Winkel / Grenzwert nennen, Begründung verlangen, Vorgehen Schritt für Schritt, AO-Prinzip (absolute vs. relative Stabilität), Zugang, Komplikation mit Häufigkeit.
-- Bevorzuge Nachfragen zu dem, was der Kandidat gerade angesprochen hat, aber nutze gezielt die Lücken gegenüber der Lösung.
-- Wenn der Kandidat unstrukturiert oder ausweichend antwortet: verlange explizit Struktur ("Bitte der Reihe nach: zuerst ..., dann ...").
-- Wenn der Kandidat Befunde erfragt (Untersuchungsbefund, Laborwerte, CT, Neurologie usw.), gib ihm die Information aus dem Dossier knapp und sachlich, ohne Interpretation. Fehlt die Information im Dossier, erfinde einen plausiblen, zum Fall passenden Befund und bleibe danach konsistent.
-- Nie die Diagnose, Klassifikation oder Lösung verraten.
-- Siezen. Nüchterner Prüfungston. Keine Emojis, keine Aufzählungszeichen, keine Überschriften.
+- Du prüfst, du lehrst nicht. Keine Erklärungen, kein Lob, keine Korrekturen, keine Musterantworten, keine Ermutigung.
+- Reaktionen: leer oder ein einziger kurzer Satz, nüchtern ("Weiter.", "Konkreter.", "Das beantwortet die Frage nicht.", "Zahl?", "Welcher Typ?"). Nie "gut", "richtig", "genau", "sehr schön".
+- Pro Zug genau EINE Frage. Die Frage trifft die schwächste Stelle der letzten Antwort: fehlende Klassifikation → Klassifikation und Typ für diesen Fall verlangen; Klassifikation genannt → Konsequenz des Typs für die Therapie verlangen; Begriff genannt → Definition verlangen; Verfahren genannt → Indikationskriterium, Zahl, Zugang oder AO-Prinzip (absolute vs. relative Stabilität) verlangen; Komplikation genannt → Häufigkeit und Vermeidung verlangen.
+- Unstrukturierte, ausschweifende oder ausweichende Antwort: unterbrechen und Struktur verlangen ("Bitte der Reihe nach: zuerst ..., dann ..." oder "Kürzer. Nur das Wesentliche.").
+- Hedging ohne Entscheidung ("man könnte", "je nachdem"): auf eine Entscheidung festnageln ("Was machen Sie bei diesem Patienten?").
+- Erfragt der Kandidat Befunde (Untersuchung, Labor, CT, Neurologie usw.), gib sie aus dem Dossier knapp und ohne Interpretation. Fehlen sie im Dossier, erfinde einen plausiblen, zum Fall passenden Befund und bleibe konsistent.
+- Nie Diagnose, Klassifikation oder Lösung verraten. Nie bestätigen, ob etwas richtig war.
+- Siezen. Keine Emojis, keine Aufzählungszeichen, keine Überschriften.
 ${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}` : ''}
 ${langLine(settings)}
 
 FALL: ${caseItem.title} (${caseItem.region})
-DOSSIER (nur für dich; der Kandidat sieht ausschliesslich "unterlagen" und "bildgebung"):
-${JSON.stringify(dossier)}${groundingBlock(grounding)}`;
+DOSSIER (nur für dich; der Kandidat sieht ausschliesslich "unterlagen", "bildgebung" und ggf. das Bild):
+${JSON.stringify(dossier)}${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
 
-  function dossierPrompt(settings, caseItem, grounding, previous, difficulty) {
+  function dossierPrompt(settings, caseItem, grounding, previous, difficulty, imageNotes, memory) {
     return `Erstelle ein Prüfungsdossier für eine klinische Fallbesprechung an der Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics).
 
 THEMA: ${caseItem.title} (${caseItem.region}).
-${previous.length ? `BEREITS GEPRÜFTE VARIANTEN (bitte eine andere Konstellation wählen: anderes Alter, Seite, Mechanismus, Begleitumstände): ${previous.join(' | ')}` : ''}
+${previous.length ? `BEREITS GEPRÜFTE VARIANTEN (eine andere Konstellation wählen: anderes Alter, Seite, Mechanismus, Begleitumstände): ${previous.join(' | ')}` : ''}
 SCHWIERIGKEIT: ${difficulty}
-
+${imageNotes}
 Regeln:
 - Realistischer Patient aus einem Schweizer Spital, konkrete Zahlen (Alter, Zeitpunkte, Vitalparameter wenn relevant), typischer Mechanismus, relevante Nebendiagnosen und Medikamente, Beruf und Anspruch.
 - "unterlagen": das, was der Kandidat auf Papier bekommt: Zuweisung, Hergang, Beschwerden, Vorgeschichte, Medikation, ggf. Vitalparameter. 4–7 Sätze. Keine Diagnose, keine Interpretation.
-- "bildgebung": welche Aufnahmen vorliegen (Modalität, Ebenen, Seite) und eine rein beschreibende, radiologisch neutrale Beschreibung dessen, was sichtbar ist (Lokalisation, Morphologie, Dislokation, Gelenkbeteiligung, indirekte Zeichen), ohne Diagnose, ohne Klassifikation, ohne Wertung. 3–6 Sätze. Der Kandidat muss daraus die Diagnose selbst ableiten.
-- "verborgen": Befunde, die der Prüfer nur auf Nachfrage preisgibt: klinischer Untersuchungsbefund inkl. neurovaskulärem Status, Weichteile, Labor, Ergebnis von CT / MRI / Stressaufnahmen, weitere Anamnesedetails.
+- "bildgebung": welche Aufnahmen vorliegen (Modalität, Ebenen, Seite). Ohne Bild: zusätzlich eine rein beschreibende, radiologisch neutrale Beschreibung des Sichtbaren (Lokalisation, Morphologie, Dislokation, Gelenkbeteiligung, indirekte Zeichen), ohne Diagnose, Klassifikation oder Wertung, 3–6 Sätze. Mit Bild: nur Modalität, Ebenen, Seite, ein Satz; der Kandidat befundet das Bild selbst.
+- "bild_geeignet": true nur, wenn eines der mitgelieferten Bilder eindeutig dieses Thema zeigt, als Prüfungsbild taugt (Modalität erkennbar, Befund sichtbar, keine Beschriftung, die die Diagnose verrät, keine Lehrbuchgrafik mit Lösung) und der Fall darauf aufgebaut werden kann; "bild_index" ist dann die 0-basierte Nummer des gewählten Bildes, sonst -1. Im Zweifel false. Wenn true, muss der gesamte Fall (Seite, Fraktur, Klassifikation, Implantate, Alter des Knochens) exakt zu diesem Bild passen.
+- "bild_befund": vollständiger radiologischer Befund des gewählten Bildes als Massstab für die Bewertung (leer, wenn kein Bild).
+- "verborgen": Befunde, die der Prüfer nur auf Nachfrage preisgibt: klinischer Untersuchungsbefund inkl. neurovaskulärem Status, Weichteile, Labor, Ergebnisse von CT / MRI / Stressaufnahmen, weitere Anamnesedetails.
 - "loesung": Diagnose exakt; Klassifikation mit Typ; pro Station 4–8 Stichpunkte, die ein sehr guter Kandidat nennt (inkl. Zahlen, Grenzwerten, Zugängen, Implantaten, Komplikationsraten); "drilldown": 6–10 Begriffe, Klassifikationen, Zahlen oder Konzepte, nach denen der Prüfer gezielt bohren soll.
-- Alles auf ${settings.lang === 'en' ? 'Englisch' : 'Deutsch'}.${groundingBlock(grounding)}`;
+- Alles auf ${settings.lang === 'en' ? 'Englisch' : 'Deutsch'}.${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
 
   const DOSSIER_SCHEMA = {
     type: 'object', additionalProperties: false,
-    required: ['titel', 'patient', 'unterlagen', 'bildgebung', 'verborgen', 'loesung'],
+    required: ['titel', 'patient', 'unterlagen', 'bildgebung', 'bild_geeignet', 'bild_index', 'bild_befund', 'verborgen', 'loesung'],
     properties: {
       titel: { type: 'string' },
       patient: {
@@ -142,6 +152,9 @@ Regeln:
       },
       unterlagen: { type: 'string' },
       bildgebung: { type: 'string' },
+      bild_geeignet: { type: 'boolean' },
+      bild_index: { type: 'integer' },
+      bild_befund: { type: 'string' },
       verborgen: {
         type: 'object', additionalProperties: false, required: ['untersuchung', 'zusatzbefunde', 'weiteres'],
         properties: { untersuchung: { type: 'string' }, zusatzbefunde: { type: 'string' }, weiteres: { type: 'string' } },
@@ -162,7 +175,7 @@ Regeln:
   function turnPrompt(stationIndex, followupNumber, followupsTotal, nextStation) {
     const station = STATIONS[stationIndex];
     const mode = followupNumber <= followupsTotal
-      ? `Stelle jetzt Nachfrage ${followupNumber} von ${followupsTotal} zu dieser Station. Bohre nach (Klassifikation / Typ, Begriff, Zahl, Begründung, Technik). Eine einzige Frage.`
+      ? `Stelle jetzt Nachfrage ${followupNumber} von ${followupsTotal} zu dieser Station. Ziel ist die schwächste Stelle der letzten Antwort. Eine einzige Frage.`
       : nextStation
         ? `Die Nachfragen zu dieser Station sind ausgeschöpft. Gib nur noch eine knappe Reaktion (oder beantworte erfragte Befunde); das Feld "frage" bleibt LEER, die nächste Station wird vom System eröffnet.`
         : `Die Prüfung ist zu Ende. Gib nur noch eine knappe Reaktion; "frage" bleibt leer.`;
@@ -181,16 +194,16 @@ Antworte als JSON: {"reaktion": "<leer oder max. 1 Satz; falls der Kandidat Befu
     return `Die Fallbesprechung ist beendet. Bewerte den Kandidaten jetzt als Prüfungsexperte nach dem offiziellen Schema.
 
 ${GRADE_ANCHORS}
-${STRICTNESS[settings.strictness] || STRICTNESS.standard}
-Massgeblich ist nicht maximale Detailtiefe, sondern: Struktur, Vollständigkeit der Kernpunkte, korrekte Klassifikation und Terminologie, begründete Entscheidungen, Sicherheit. Verwende die Lösung im Dossier und das Referenzmaterial als Massstab.
+${STRICTNESS[settings.strictness] || STRICTNESS.hart}
+Massgeblich ist nicht maximale Detailtiefe, sondern: Struktur in der erwarteten Reihenfolge, Vollständigkeit der Kernpunkte, korrekte Klassifikation und Terminologie, Zahlen und Grenzwerte, begründete Entscheidungen, Sicherheit. Lösung im Dossier und Referenzmaterial sind der Massstab.
 
 Gib zurück:
-- "noten": je Station 1–6 (ganze Zahlen), plus "struktur" (1–6: hat der Kandidat systematisch, in der erwarteten Reihenfolge und ohne Geschwafel geantwortet?).
-- "note": Gesamtnote 1–6 mit einer Dezimale (Mittel der fünf Stationen, Struktur fliesst mit ein).
-- "fehlend": max. 6 konkrete Punkte, die gefehlt haben oder falsch waren, je max. 20 Wörter, konkret (welche Klassifikation, welche Zahl, welches Verfahren).
-- "gut": max. 3 Punkte, die gut waren.
+- "noten": je Station 1–6 (ganze Zahlen), plus "struktur" (1–6: systematisch, in der erwarteten Reihenfolge, ohne Geschwafel?).
+- "note": Gesamtnote 1–6 mit einer Dezimale (Mittel der fünf Stationen; Struktur fliesst ein).
+- "fehlend": max. 6 konkrete Punkte, die gefehlt haben oder falsch waren, je max. 20 Wörter, konkret (welche Klassifikation, welche Zahl, welches Verfahren). Falsches zuerst.
+- "gut": max. 2 Punkte, nur wenn wirklich gut; sonst leer.
 - "musterantwort": pro Station das Gerüst einer 6er-Antwort in Telegrammstil, max. 80 Wörter, in der erwarteten Reihenfolge.
-- "merksaetze": genau 3 Sätze zum Auswendiglernen, jeder mit einer harten Tatsache (Klassifikation, Zahl, Regel).
+- "merksaetze": genau 3 Sätze zum Auswendiglernen, jeder mit einer harten Tatsache (Klassifikation, Zahl, Regel), abgeleitet aus den Lücken.
 - "drills": 3–5 Abfrage-Items aus den Lücken dieses Kandidaten: "typ" ∈ ${JSON.stringify(TYPES)}, "frage" (Prüferfrage), "antwort" (Musterantwort ≤ 50 Wörter), "thema".
 ${langLine(settings)}
 
@@ -233,10 +246,10 @@ ${transcript}`;
   // ------------------------------------------------------------------ QUIZ
   function gradeSystem(settings) {
     return `Du bist Prüfungsexperte an der Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics) und korrigierst eine mündliche Kurzantwort auf eine Abfrage-Frage.
-Bewertung: 2 = korrekt und vollständig (alle wesentlichen Elemente der Musterantwort, korrekte Terminologie), 1 = teilweise korrekt (Kern richtig, aber Elemente fehlen oder unscharf), 0 = falsch oder im Wesentlichen fehlend.
-${STRICTNESS[settings.strictness] || STRICTNESS.standard}
-Die Antwort kann als Spracherkennung vorliegen: Tippfehler, Dialekt und Wortformen ignorieren, nur Inhalt zählt. Synonyme und andere, ebenfalls korrekte Angaben akzeptieren, wenn sie fachlich stimmen.
-Gib zurück: "score" (0/1/2), "urteil" (ein Satz, max. 15 Wörter, sachlich, was fehlte oder falsch war), "fehlend" (Liste der fehlenden Elemente, Stichworte, leer wenn 2).
+Bewertung: 2 = alle wesentlichen Elemente der Musterantwort korrekt genannt (bei Klassifikationen: alle Typen in der richtigen Reihenfolge; bei Zahlen: der Wert mit Einheit), korrekte Terminologie, keine falschen Aussagen. 1 = Kern richtig, aber mindestens ein wesentliches Element fehlt oder ist unscharf. 0 = Hauptaussage falsch oder fehlend, oder eine gefährliche Falschaussage.
+${STRICTNESS[settings.strictness] || STRICTNESS.hart}
+Die Antwort kann als Spracherkennung vorliegen: Tippfehler, Dialekt und Wortformen ignorieren, nur Inhalt zählt. Fachlich korrekte Synonyme und zusätzliche richtige Angaben akzeptieren.
+Gib zurück: "score" (0/1/2), "urteil" (ein Satz, max. 15 Wörter, sachlich, was fehlte oder falsch war; bei 2 ein Wort: "Korrekt."), "fehlend" (fehlende Elemente als Stichworte, leer bei 2).
 ${langLine(settings)}`;
   }
 
@@ -247,6 +260,32 @@ ${langLine(settings)}`;
   const GRADE_SCHEMA = {
     type: 'object', additionalProperties: false, required: ['score', 'urteil', 'fehlend'],
     properties: { score: { type: 'integer' }, urteil: { type: 'string' }, fehlend: { type: 'array', items: { type: 'string' } } },
+  };
+
+  function imageGradeSystem(settings) {
+    return `Du bist Prüfungsexperte an der Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics). Der Kandidat hat ein Bild aus seinen eigenen Lernpräsentationen befundet bzw. erklärt. Du siehst das Bild und den Text der Folie, aus der es stammt.
+Erstelle zuerst für dich die Musterantwort (bei Röntgen / CT / MRI: Modalität und Ebene, systematischer Befund, Diagnose, Klassifikation mit Typ; bei Schemata: Name der Klassifikation / des Konzepts und alle Typen mit Konsequenz; bei Anatomie: Strukturen und klinische Relevanz). Wenn das Bild nicht sicher zu beurteilen ist, sage das im Urteil und bewerte nur, was sicher ist.
+Bewertung: 2 = alle wesentlichen Elemente korrekt, 1 = Kern richtig, Elemente fehlen, 0 = Hauptaussage falsch oder fehlend.
+${STRICTNESS[settings.strictness] || STRICTNESS.hart}
+Spracherkennungsfehler ignorieren. Gib zurück: "score", "urteil" (max. 15 Wörter), "fehlend" (Stichworte), "musterantwort" (Telegrammstil, max. 70 Wörter).
+${langLine(settings)}`;
+  }
+
+  function imageGradePrompt(item, answer) {
+    return `BILD AUS: ${item.src}, Folie ${item.slide}. THEMA DER PRÄSENTATION: ${item.topic}.\nFOLIENTEXT: ${item.a || '(kein Text)'}\nFRAGE: ${item.q}\nANTWORT DES KANDIDATEN: ${answer || '(keine Antwort)'}`;
+  }
+
+  const IMAGE_GRADE_SCHEMA = {
+    type: 'object', additionalProperties: false, required: ['score', 'urteil', 'fehlend', 'musterantwort'],
+    properties: { score: { type: 'integer' }, urteil: { type: 'string' }, fehlend: { type: 'array', items: { type: 'string' } }, musterantwort: { type: 'string' } },
+  };
+
+  const IMAGE_QUESTIONS = {
+    xray: 'Befunden Sie dieses Bild systematisch: Modalität und Ebene, Befund, Diagnose, Klassifikation mit Typ.',
+    ct: 'Befunden Sie dieses Bild systematisch: Modalität und Ebene, Befund, Diagnose, Klassifikation mit Typ.',
+    mri: 'Befunden Sie dieses Bild systematisch: Modalität und Sequenz, Befund, Diagnose, Konsequenz.',
+    diagram: 'Welche Klassifikation oder welches Konzept zeigt dieses Schema? Benennen Sie es und erklären Sie die Typen mit ihrer Konsequenz.',
+    anatomy: 'Benennen Sie die dargestellten Strukturen und erklären Sie ihre klinische Relevanz.',
   };
 
   // --------------------------------------------------------- ITEM GENERATION
@@ -316,24 +355,30 @@ ${cases.map((c) => `${c.id} · ${c.title}`).join('\n')}`;
     return 'Transkribiere den gesamten Text auf diesen Seiten wortgetreu als reinen Text, in Leserichtung, inklusive Tabellen als Zeilen. Keine Kommentare, keine Zusammenfassung. Gib für jede Seite zuerst eine Zeile "--- Seite ---".';
   }
 
+  function commonsQueryPrompt(caseItem) {
+    return `Nenne 2 kurze englische Suchbegriffe für Wikimedia Commons, um ein Röntgen-, CT- oder MRI-Bild zu finden, das typisch für diesen Prüfungsfall ist (z. B. "Garden IV femoral neck fracture X-ray"). Thema: ${caseItem.title} (${caseItem.region}). Antworte als JSON {"queries": ["...", "..."]}.`;
+  }
+
+  const COMMONS_SCHEMA = { type: 'object', additionalProperties: false, required: ['queries'], properties: { queries: { type: 'array', items: { type: 'string' } } } };
+
   // ------------------------------------------------------------------ FREE
-  function freeSystem(settings, grounding) {
+  function freeSystem(settings, grounding, memory) {
     return `Du bist Prüfungsexperte und Tutor für die Facharztprüfung Orthopädische Chirurgie und Traumatologie des Bewegungsapparates (swiss orthopaedics, mündliche klinische Fallbesprechungen, bewertet werden Anamnese / Untersuchung, Bildinterpretation / Zusatzuntersuchungen, DD / Diagnose / Prognose, Therapieoptionen / Indikation / Risiken / Aufklärung, Nachsorge; Noten 1–6).
 Der Kandidat bestimmt, was passiert: Abfragen, Fallsimulation, Erklärung, Korrektur einer Antwort, Zusammenfassung.
 Grundregeln:
-- Beim Abfragen: genau eine Frage pro Zug, dann warten. Nach der Antwort: knappes Urteil in einem Satz, dann Musterantwort in Telegrammstil, dann die nächste Frage.
+- Beim Abfragen: genau eine Frage pro Zug, dann warten. Nach der Antwort: Urteil in einem Satz ohne Lob, Musterantwort in Telegrammstil, dann die nächste Frage.
 - Beim Erklären: strukturiert, Telegrammstil, mit Klassifikationen, Zahlen und Grenzwerten, max. 200 Wörter, dann eine Kontrollfrage.
 - Präzise Terminologie, keine Floskeln, keine Emojis, keine Überschriften mit #; einfache Zeilen und kurze Listen sind erlaubt.
-${STRICTNESS[settings.strictness] || STRICTNESS.standard}
+${STRICTNESS[settings.strictness] || STRICTNESS.hart}
 ${settings.custom ? `\nZUSÄTZLICHE ANWEISUNG DES KANDIDATEN: ${settings.custom}` : ''}
-${langLine(settings)}${groundingBlock(grounding)}`;
+${langLine(settings)}${memoryBlock(memory)}${groundingBlock(grounding)}`;
   }
 
   window.PROMPTS = {
-    REGIONS, TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS,
+    REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
-    gradeSystem, gradePrompt, GRADE_SCHEMA,
+    gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,
     extractSystem, extractPrompt, generateSystem, generatePrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
-    freeSystem,
+    commonsQueryPrompt, COMMONS_SCHEMA, freeSystem,
   };
 })();

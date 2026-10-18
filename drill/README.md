@@ -65,6 +65,13 @@ activity, export/import.
 
 - `data/cases.js` — the 123 cases from the FMH tracker (`fmh-oral-2026/app/study-data.ts`).
 - `data/corpus.js` — slide and notes text of the 51 presentations attached to those cases.
+- `data/images.js` + `data/img/` — 153 images from those presentations (radiographs, CT, MRI,
+  classification schemas, anatomy), labelled by kind and mapped to cases. In PRÜFUNG the
+  examiner gets the radiographs of the case and builds the dossier on one of them only if it
+  judges the image a clear, unlabelled match; otherwise the case runs on a text description.
+  With no own image, it can search Wikimedia Commons (toggle in settings) under the same
+  rule. In ABFRAGE/LAZY every image is also a drill item ("Befunden Sie das Bild"), graded
+  by the vision model. Images from PPTX files you dump are extracted the same way.
 - `data/bank/*.js` — 256 hand-written seed items by region. Edit freely: one line per
   item `[type, topic, question, answer]`. Items are identified by their question text, so
   changing a question resets its progress.
@@ -72,7 +79,8 @@ activity, export/import.
 
 ## Settings worth knowing
 
-Model (default `gpt-5.1`; VERFÜGBARE MODELLE LADEN lists what your key can use),
-Denkaufwand (reasoning effort, `low` is the sweet spot), Strenge (mild / standard / hart),
+Model `auto` picks the strongest model your key can use (gpt-6 › gpt-5.x › gpt-4.1) when you
+press SPEICHERN; type a model id to override. Denkaufwand (schnell / ausgewogen / gründlich:
+case creation and feedback think harder than follow-ups and grading), Strenge (default hart),
 Nachfragen pro Station, Prüfer-Stimme (TTS), Sprache, and a free-text instruction that is
 appended to the examiner prompt ("frag mehr nach Zugängen").

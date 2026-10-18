@@ -217,3 +217,19 @@ ul.clean li { margin-bottom: 6px; }
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--faint); border-top-color: var(--signal); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .thinking { color: var(--faint); font-family: var(--mono); font-size: 10px; letter-spacing: .15em; }
+
+/* images */
+.case-images { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 12px; }
+.case-images img { max-height: 320px; max-width: 100%; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
+.quiz-img { margin: 0 0 18px; }
+.quiz-img img { max-height: 420px; max-width: 100%; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
+.lightbox { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .92); cursor: zoom-out; }
+.lightbox img { max-width: 96vw; max-height: 96vh; }
+.img-credit { color: var(--faint); font-size: 11px; }
+
+/* declutter */
+.hero { padding: 6px 0 22px; margin-bottom: 24px; }
+.more-filters { margin-top: 10px; }
+details.plain summary { cursor: pointer; list-style: none; color: var(--muted); font-family: var(--mono); font-size: 10px; letter-spacing: .15em; text-transform: uppercase; min-height: 36px; display: flex; align-items: center; }
+details.plain summary::-webkit-details-marker { display: none; }
+details.plain summary:hover { color: var(--ink); }

@@ -1,17 +1,20 @@
 /* FMH DRILL · app.js
-   Six modes on top of one drill bank and one case list:
-   PRÜFUNG (case exam), ABFRAGE (graded quiz), LAZY (flashcards), FREI (free prompt),
-   MATERIAL (dump pad → new drills), STATUS (what is weak). Progress is saved through
-   server.py to ./userdata on this machine, or to localStorage when opened without the server. */
+   Six modes on one drill bank and one case list: PRÜFUNG (case exam), ABFRAGE (graded quiz),
+   LAZY (flashcards), FREI (free prompt), MATERIAL (dump pad → new drills), STATUS.
+   Progress is saved through server.py to ./userdata on this machine, or to localStorage
+   when opened without the server. */
 (function () {
   'use strict';
 
   const P = window.PROMPTS;
   const CASES = window.CASES;
   const CORPUS = window.CORPUS || {};
+  const IMAGES = window.IMAGES || [];
   const EXAM_DATE = new Date('2026-11-21T15:00:00+01:00');
   const OPENAI = 'https://api.openai.com/v1';
   const INTERVALS = [0, 1, 3, 7, 14, 30]; // days per Leitner box
+  const MODEL_PREFERENCE = ['gpt-6', 'gpt-5.5', 'gpt-5.4', 'gpt-5.3', 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-4.1'];
+  const MODEL_EXCLUDE = /mini|nano|codex|realtime|audio|transcribe|tts|search|pro|chat|preview|instruct|image/i;
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -24,14 +27,15 @@
 
   // ------------------------------------------------------------------ state
   const DEFAULT_SETTINGS = {
-    apiKey: '', model: 'gpt-5.1', reasoning: 'low', transcribeModel: 'gpt-4o-transcribe', ttsModel: 'gpt-4o-mini-tts', ttsVoice: 'onyx',
-    examinerVoice: false, lang: 'de', strictness: 'standard', followups: 1, custom: '', dailyGoal: 30, readAloud: false, quizCount: 20,
+    apiKey: '', model: 'auto', resolvedModel: '', effort: 'ausgewogen', transcribeModel: 'gpt-4o-transcribe', ttsModel: 'gpt-4o-mini-tts', ttsVoice: 'onyx',
+    examinerVoice: false, lang: 'de', strictness: 'hart', followups: 1, custom: '', dailyGoal: 30, readAloud: false, quizCount: 20, images: true, webImages: true,
   };
-  let state = { version: 1, settings: { ...DEFAULT_SETTINGS }, items: {}, caseLog: {}, daily: {}, lastFilters: {} };
+  let state = { version: 2, settings: { ...DEFAULT_SETTINGS }, items: {}, caseLog: {}, daily: {}, lastFilters: {} };
   let customBank = [];
   let materialsIndex = [];
   let serverOk = false;
   let seedBank = [];
+  let imageBank = [];
 
   const Store = {
     async init() {
@@ -51,10 +55,7 @@
       }
     },
     _timer: null,
-    saveState() {
-      clearTimeout(this._timer);
-      this._timer = setTimeout(() => this.flush(), 400);
-    },
+    saveState() { clearTimeout(this._timer); this._timer = setTimeout(() => this.flush(), 400); },
     async flush() {
       const body = JSON.stringify(state);
       if (serverOk) {
@@ -89,15 +90,11 @@
     },
     async putSession(session) {
       if (serverOk) await fetch(`/api/sessions/${session.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(session) });
-      else { try { localStorage.setItem(`fmhdrill.session.${session.id}`, JSON.stringify(session)); } catch { /* too big for localStorage, grade is kept in state */ } }
+      else { try { localStorage.setItem(`fmhdrill.session.${session.id}`, JSON.stringify(session)); } catch { /* grade is kept in state */ } }
     },
-    async getSession(id) {
-      if (serverOk) return fetch(`/api/sessions/${id}`).then((r) => (r.ok ? r.json() : null));
-      return JSON.parse(localStorage.getItem(`fmhdrill.session.${id}`) || 'null');
-    },
-    async uploadFile(file) {
-      if (!serverOk) return;
-      try { await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file }); } catch { /* original not kept, text is */ }
+    async uploadFile(file, name) {
+      if (!serverOk) return null;
+      try { const r = await fetch(`/api/files?name=${encodeURIComponent(name || file.name)}`, { method: 'POST', body: file }); const d = await r.json(); return d.stored ? `userdata/files/${d.stored}` : null; } catch { return null; }
     },
   };
 
@@ -111,20 +108,31 @@
   function daysLeft() { return Math.ceil((EXAM_DATE - Date.now()) / 86400000); }
   function gradeClass(g) { if (g == null) return 'none'; return `g${Math.max(1, Math.min(6, Math.round(g)))}`; }
   function fmtGrade(g) { return g == null ? '–' : (Math.round(g * 10) / 10).toFixed(1); }
-  function bump(key, n = 1) {
-    const d = state.daily[today()] || (state.daily[today()] = {});
-    d[key] = (d[key] || 0) + n; Store.saveState();
-  }
+  function bump(key, n = 1) { const d = state.daily[today()] || (state.daily[today()] = {}); d[key] = (d[key] || 0) + n; Store.saveState(); }
   function requireKey() {
     if (state.settings.apiKey) return true;
     toast('Zuerst den OpenAI API-Schlüssel unter ⚙ eintragen.', true); location.hash = '#settings'; return false;
   }
+  const lightbox = $('#lightbox');
+  lightbox.onclick = () => { lightbox.hidden = true; };
+  document.addEventListener('click', (e) => { const img = e.target.closest('img[data-zoom]'); if (img) { lightbox.querySelector('img').src = img.src; lightbox.hidden = false; } });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !lightbox.hidden) lightbox.hidden = true; });
 
   // ------------------------------------------------------------------ openai
-  function isReasoningModel(model) { return /^(gpt-5|o[1-9])/i.test(model || ''); }
-  function baseBody(model, extra = {}) {
+  function activeModel() {
+    const s = state.settings;
+    if (s.model && s.model !== 'auto') return s.model;
+    return s.resolvedModel || 'gpt-5.1';
+  }
+  function isReasoningModel(model) { return /^(gpt-[5-9]|o[1-9])/i.test(model || ''); }
+  function effortFor(heavy) {
+    const map = { schnell: ['low', 'low'], ausgewogen: ['low', 'medium'], gründlich: ['medium', 'high'] };
+    const pair = map[state.settings.effort] || map.ausgewogen;
+    return heavy ? pair[1] : pair[0];
+  }
+  function baseBody(model, heavy, extra = {}) {
     const body = { model, ...extra };
-    if (isReasoningModel(model)) { if (state.settings.reasoning && state.settings.reasoning !== 'default') body.reasoning_effort = state.settings.reasoning; }
+    if (isReasoningModel(model)) body.reasoning_effort = effortFor(heavy);
     else body.temperature = 0.3;
     return body;
   }
@@ -137,20 +145,26 @@
     }
     return res;
   }
-  async function chatJSON({ system, messages, schema, name, model }) {
-    const useModel = model || state.settings.model;
-    const msgs = [{ role: 'system', content: system }, ...messages];
+  function withImages(messages, images) {
+    if (!images?.length) return messages;
+    const msgs = messages.slice(); const last = { ...msgs[msgs.length - 1] };
+    last.content = [{ type: 'text', text: last.content }].concat(images.map((url) => ({ type: 'image_url', image_url: { url, detail: 'high' } })));
+    msgs[msgs.length - 1] = last; return msgs;
+  }
+  async function chatJSON({ system, messages, schema, name, heavy = false, images = null }) {
+    const model = activeModel();
+    const msgs = [{ role: 'system', content: system }, ...withImages(messages, images)];
     const attempt = async (format, body) => {
       const res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, messages: msgs, response_format: format }) });
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content || '';
       return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
     };
-    const body = baseBody(useModel);
+    const body = baseBody(model, heavy);
     try {
       return await attempt({ type: 'json_schema', json_schema: { name, strict: true, schema } }, body);
     } catch (error) {
-      if (/reasoning_effort|Unsupported parameter|unsupported_parameter/i.test(error.message) && body.reasoning_effort) {
+      if (/reasoning_effort|Unsupported parameter|unsupported_parameter|unsupported_value/i.test(error.message) && body.reasoning_effort) {
         delete body.reasoning_effort;
         return attempt({ type: 'json_schema', json_schema: { name, strict: true, schema } }, body);
       }
@@ -161,14 +175,14 @@
       throw error;
     }
   }
-  async function chatStream({ system, messages, model, onDelta }) {
-    const useModel = model || state.settings.model;
-    const body = baseBody(useModel, { stream: true, messages: [{ role: 'system', content: system }, ...messages] });
+  async function chatStream({ system, messages, onDelta }) {
+    const model = activeModel();
+    const body = baseBody(model, false, { stream: true, messages: [{ role: 'system', content: system }, ...messages] });
     let res;
     try {
       res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     } catch (error) {
-      if (/reasoning_effort|Unsupported parameter/i.test(error.message) && body.reasoning_effort) {
+      if (/reasoning_effort|Unsupported parameter|unsupported_value/i.test(error.message) && body.reasoning_effort) {
         delete body.reasoning_effort;
         res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       } else throw error;
@@ -185,6 +199,19 @@
       }
     }
     return full;
+  }
+  async function resolveModel() {
+    const res = await openaiFetch('/models', {}); const data = await res.json();
+    const ids = data.data.map((m) => m.id);
+    if (state.settings.model === 'auto') {
+      state.settings.resolvedModel = '';
+      for (const prefix of MODEL_PREFERENCE) {
+        const hits = ids.filter((id) => (id === prefix || id.startsWith(`${prefix}-`) || id.startsWith(`${prefix}.`)) && !MODEL_EXCLUDE.test(id.slice(prefix.length)));
+        if (hits.length) { state.settings.resolvedModel = hits.includes(prefix) ? prefix : hits.sort((a, b) => a.length - b.length)[0]; break; }
+      }
+      if (!state.settings.resolvedModel) state.settings.resolvedModel = 'gpt-5.1';
+    }
+    return ids;
   }
   async function transcribe(blob, ext) {
     const form = new FormData();
@@ -205,7 +232,7 @@
         body: JSON.stringify({ model: state.settings.ttsModel || 'gpt-4o-mini-tts', voice: state.settings.ttsVoice || 'onyx', input: text, response_format: 'mp3', instructions: 'Nüchterner, zügiger Prüfungston. Keine Emotion.' }),
       });
       const url = URL.createObjectURL(await res.blob());
-      if (currentAudio) { currentAudio.pause(); }
+      if (currentAudio) currentAudio.pause();
       currentAudio = new Audio(url); currentAudio.play().catch(() => {});
     } catch (error) { toast(`Sprachausgabe: ${error.message}`, true); }
   }
@@ -218,6 +245,14 @@
     const v = voices.find((x) => x.lang === u.lang) || voices.find((x) => x.lang.startsWith(u.lang.slice(0, 2)));
     if (v) u.voice = v;
     window.speechSynthesis.speak(u);
+  }
+  async function toDataUrl(src, maxSide = 1400) {
+    const blob = await fetch(src).then((r) => { if (!r.ok) throw new Error(`Bild ${r.status}`); return r.blob(); });
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas'); canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.85);
   }
 
   // ------------------------------------------------------------------ recorder
@@ -244,7 +279,7 @@
       });
     },
   };
-  function wireMic(button, textarea, onDone) {
+  function wireMic(button, textarea) {
     button.addEventListener('click', async () => {
       if (!requireKey()) return;
       if (!Recorder.active) {
@@ -252,23 +287,28 @@
         catch (error) { toast(`Mikrofon: ${error.message}`, true); }
         return;
       }
-      button.classList.remove('on'); button.textContent = '… TRANSKRIBIERE'; button.disabled = true;
+      button.classList.remove('on'); button.textContent = '…'; button.disabled = true;
       try {
         const blob = await Recorder.stop();
         const text = await transcribe(blob, Recorder.ext);
         textarea.value = (textarea.value ? `${textarea.value.trim()} ` : '') + text;
         textarea.dispatchEvent(new Event('input'));
-        if (onDone) onDone(text);
       } catch (error) { toast(`Transkription: ${error.message}`, true); }
       button.disabled = false; button.textContent = '● SPRECHEN';
     });
   }
 
   // ------------------------------------------------------------------ bank
+  function caseById(id) { return CASES.find((c) => c.id === id); }
+  function regionOfCase(caseItem) { return (P.CASE_REGION_TO_DRILL[caseItem?.region] || [])[0] || 'Infekt, Tumor & Allgemein'; }
   function buildSeed() {
     seedBank = (window.SEED_BANK || []).map((it) => ({ ...it, id: `s-${hash(it.q)}`, source: 'seed' }));
+    imageBank = IMAGES.map((img) => {
+      const c = caseById(img.cases[0]);
+      return { id: `img-${img.file.replace(/\W/g, '')}`, type: 'bild', kind: img.kind, region: regionOfCase(c), topic: c?.title || img.src, q: P.IMAGE_QUESTIONS[img.kind] || P.IMAGE_QUESTIONS.diagram, a: img.text || '', img: `data/img/${img.file}`, src: img.src, slide: img.slide, caseIds: img.cases, source: 'bild' };
+    });
   }
-  function allItems() { return seedBank.concat(customBank); }
+  function allItems() { return seedBank.concat(customBank, state.settings.images ? imageBank : []); }
   function stats(id) { return state.items[id] || { box: 0, due: 0, seen: 0, right: 0, hist: [] }; }
   function schedule(id, score) {
     const s = { ...stats(id) };
@@ -280,9 +320,11 @@
     state.items[id] = s; Store.saveState();
   }
   function accuracy(id) { const h = stats(id).hist || []; if (!h.length) return null; return h.reduce((a, b) => a + b, 0) / (2 * h.length); }
-  function filterItems(f) {
+  function filterItems(f, opts = {}) {
     const q = norm(f.search || '');
     return allItems().filter((it) => {
+      if (opts.noImages && it.type === 'bild') return false;
+      if (opts.lazy && it.type === 'bild' && it.a.length < 20) return false;
       if (f.regions?.length && !f.regions.includes(it.region)) return false;
       if (f.types?.length && !f.types.includes(it.type)) return false;
       if (f.source === 'seed' && it.source !== 'seed') return false;
@@ -311,7 +353,7 @@
       known.add(norm(q));
       customBank.push({
         id: `c-${uid()}`, type: P.TYPES.includes(raw.typ) ? raw.typ : 'konzept',
-        region: P.REGIONS.includes(raw.region) ? raw.region : (caseIds?.length ? (P.CASE_REGION_TO_DRILL[caseById(caseIds[0])?.region] || [])[0] || 'Infekt, Tumor & Allgemein' : 'Infekt, Tumor & Allgemein'),
+        region: P.REGIONS.includes(raw.region) ? raw.region : regionOfCase(caseById(caseIds?.[0])),
         topic: raw.thema || raw.topic || '', q, a, source, caseIds: caseIds || [], createdAt: Date.now(),
       });
       added += 1;
@@ -319,9 +361,8 @@
     if (added) await Store.saveBank();
     return added;
   }
-  function caseById(id) { return CASES.find((c) => c.id === id); }
 
-  // grounding text for a case: attached presentations + dumped materials tagged with it
+  // grounding and memory
   async function groundingForCase(caseItem, budget = 14000) {
     const parts = [];
     for (const entry of CORPUS[caseItem.id] || []) parts.push(`[${entry.name}]\n${entry.text}`);
@@ -329,8 +370,10 @@
       const full = await Store.getMaterial(m.id);
       if (full?.text) parts.push(`[${m.name}]\n${full.text.slice(0, 6000)}`);
     }
-    const bankLines = allItems().filter((it) => (it.caseIds || []).includes(caseItem.id)).map((it) => `F: ${it.q} A: ${it.a}`);
-    if (bankLines.length) parts.push(`[Abfrage-Items zum Fall]\n${bankLines.join('\n')}`);
+    const region = regionOfCase(caseItem);
+    const words = norm(caseItem.title).split(' ').filter((w) => w.length > 4);
+    const bankLines = allItems().filter((it) => it.type !== 'bild' && ((it.caseIds || []).includes(caseItem.id) || (it.region === region && words.some((w) => norm(it.topic).includes(w))))).slice(0, 40).map((it) => `F: ${it.q} A: ${it.a}`);
+    if (bankLines.length) parts.push(`[Abfrage-Items zum Thema]\n${bankLines.join('\n')}`);
     const text = parts.join('\n\n');
     return text.length > budget ? `${text.slice(0, budget)}\n[gekürzt]` : text;
   }
@@ -340,6 +383,38 @@
     for (const id of ids) for (const entry of CORPUS[id] || []) parts.push(`[${entry.name}]\n${entry.text}`);
     const text = parts.join('\n\n');
     return text.length > budget ? text.slice(0, budget) : text;
+  }
+  function memoryFor(caseItem, region) {
+    const caseGaps = caseItem ? (state.caseLog[caseItem.id] || []).flatMap((l) => l.fehlend || []).slice(-8) : [];
+    const r = region || (caseItem ? regionOfCase(caseItem) : null);
+    const weakTopics = r ? [...new Set(allItems().filter((it) => it.region === r && stats(it.id).seen && (accuracy(it.id) ?? 1) < 0.6).sort((a, b) => (accuracy(a.id) ?? 0) - (accuracy(b.id) ?? 0)).map((it) => it.topic).filter(Boolean))].slice(0, 6) : [];
+    return { caseGaps, weakTopics };
+  }
+
+  // images for a case: own slides first, Wikimedia Commons as fallback
+  async function imageCandidates(caseItem) {
+    const out = [];
+    if (!state.settings.images) return out;
+    const own = shuffle(IMAGES.filter((i) => i.cases.includes(caseItem.id) && ['xray', 'ct', 'mri'].includes(i.kind)));
+    for (const img of own.slice(0, 3)) {
+      try { out.push({ src: `data/img/${img.file}`, url: await toDataUrl(`data/img/${img.file}`), credit: `${img.src} · Folie ${img.slide}`, note: img.text ? img.text.slice(0, 200) : '' }); } catch { /* skip */ }
+    }
+    if (!out.length && state.settings.webImages) {
+      try {
+        const q = await chatJSON({ system: 'Antworte nur mit JSON.', messages: [{ role: 'user', content: P.commonsQueryPrompt(caseItem) }], schema: P.COMMONS_SCHEMA, name: 'commons' });
+        for (const query of (q.queries || []).slice(0, 2)) {
+          const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1200&format=json&origin=*`;
+          const data = await fetch(api).then((r) => r.json()).catch(() => null);
+          for (const page of Object.values(data?.query?.pages || {})) {
+            const info = page.imageinfo?.[0]; if (!info || !/image\/(jpeg|png)/.test(info.mime) || info.width < 500) continue;
+            try { out.push({ src: info.thumburl || info.url, url: await toDataUrl(info.thumburl || info.url, 1200), credit: `Wikimedia Commons · ${page.title.replace(/^File:/, '')}`, note: (info.extmetadata?.ImageDescription?.value || '').replace(/<[^>]+>/g, '').slice(0, 200) }); } catch { /* CORS or decode failure */ }
+            if (out.length >= 4) break;
+          }
+          if (out.length >= 4) break;
+        }
+      } catch { /* web images are optional */ }
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ router
@@ -358,6 +433,7 @@
   }
   $('#nav').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) location.hash = `#${b.dataset.view}`; });
   window.addEventListener('hashchange', navigate);
+  const hero = (kicker, title) => `<div class="hero"><span class="kicker">${kicker}</span><h1>${title}</h1></div>`;
 
   // ------------------------------------------------------------------ EXAM · matrix
   function caseSummary(caseId) {
@@ -371,26 +447,21 @@
     const graded = CASES.map((c) => caseSummary(c.id).mean).filter((g) => g != null);
     const mean = graded.length ? graded.reduce((a, b) => a + b, 0) / graded.length : null;
     view.innerHTML = `
-      <div class="hero">
-        <span class="kicker">PRÜFUNGSMODUS · KLINISCHE FALLBESPRECHUNG</span>
-        <h1>Fall-Matrix</h1>
-        <p>Jeder Fall: 5 Stationen in der offiziellen Reihenfolge, 15 Minuten, Note 1–6. Antworten gesprochen oder getippt. Am Ende Feedback nach festem Schema.</p>
-        <div class="row" style="margin-top:18px">
-          <button class="btn primary" id="btn-next">NÄCHSTER OFFENER FALL</button>
-          <button class="btn" id="btn-random">ZUFALL</button>
-          <button class="btn" id="btn-weak">SCHWÄCHSTER FALL</button>
-          <span class="meta">${done}/${CASES.length} FÄLLE GEPRÜFT · Ø ${fmtGrade(mean)}</span>
-        </div>
+      ${hero(`PRÜFUNG · ${done}/${CASES.length} FÄLLE · Ø ${fmtGrade(mean)}`, 'Fall-Matrix')}
+      <div class="row" style="margin:-8px 0 26px">
+        <button class="btn primary" id="btn-next">NÄCHSTER OFFENER FALL</button>
+        <button class="btn" id="btn-random">ZUFALL</button>
+        <button class="btn" id="btn-weak">SCHWÄCHSTER FALL</button>
       </div>
       ${regions.map((region) => {
         const items = CASES.filter((c) => c.region === region);
         const regionDone = items.filter((c) => caseSummary(c.id).runs > 0).length;
         return `<section class="matrix-group">
           <div class="matrix-head"><h3>${esc(region)}</h3><span class="meta">${regionDone}/${items.length}</span></div>
-          ${items.map((c) => { const s = caseSummary(c.id); return `
+          ${items.map((c) => { const s = caseSummary(c.id); const hasImg = IMAGES.some((i) => i.cases.includes(c.id) && ['xray', 'ct', 'mri'].includes(i.kind)); return `
             <button class="case-row" data-case="${c.id}">
               <span class="id">${esc(c.id.toUpperCase())}</span>
-              <span class="title">${esc(c.title)}</span>
+              <span class="title">${esc(c.title)}${hasImg ? ' <span class="faint" title="Bilder vorhanden">▣</span>' : ''}</span>
               <span class="runs">${s.runs ? `${s.runs}×` : ''}</span>
               <span class="grade ${gradeClass(s.last)}">${fmtGrade(s.last)}</span>
             </button>`; }).join('')}
@@ -410,16 +481,16 @@
     if (!caseId) return renderMatrix();
     const caseItem = caseById(caseId);
     if (!caseItem) { location.hash = '#exam'; return; }
-    const session = { id: `${today().replace(/-/g, '')}-${uid()}`, caseId, title: caseItem.title, startedAt: Date.now(), status: 'laufend', dossier: null, messages: [], transcript: [], station: 0, followup: 0, feedback: null };
-    const previous = (state.caseLog[caseId] || []).map((l) => l.variant).filter(Boolean).slice(-6);
+    const session = { id: `${today().replace(/-/g, '')}-${uid()}`, caseId, title: caseItem.title, startedAt: Date.now(), status: 'laufend', dossier: null, image: null, messages: [], transcript: [], station: 0, followup: 0, feedback: null };
     const history = state.caseLog[caseId] || [];
+    const previous = history.map((l) => l.variant).filter(Boolean).slice(-6);
     const difficulty = history.length === 0 ? 'Standardfall, typische Präsentation.' : (history[history.length - 1].grade >= 5 ? 'Anspruchsvoll: Begleitverletzung, relevante Komorbidität oder Komplikation im Verlauf einbauen.' : 'Standardfall, aber andere Variante.');
     let timerId = null; let busy = false;
     const followupsTotal = Math.max(0, Math.min(3, Number(state.settings.followups) || 0));
 
     view.innerHTML = `
       <div class="row between" style="margin-bottom:18px">
-        <div><span class="kicker" style="margin-bottom:6px">FALL ${esc(caseId.toUpperCase())} · ${esc(caseItem.region)}</span><h2 style="margin:0">${esc(caseItem.title)}</h2></div>
+        <div><span class="kicker" style="margin-bottom:6px">${esc(caseId.toUpperCase())} · ${esc(caseItem.region)}</span><h2 style="margin:0">${esc(caseItem.title)}</h2></div>
         <div class="row"><span class="timer" id="timer">15:00</span><button class="btn ghost" id="btn-abort">ABBRECHEN</button></div>
       </div>
       <div class="station-strip" id="strip">${P.STATIONS.map(() => '<span></span>').join('')}</div>
@@ -429,19 +500,18 @@
           <div class="transcript" id="transcript"></div>
           <div class="answer-box" id="answer-box" hidden>
             <div class="station-label" id="station-label"></div>
-            <textarea class="answer" id="answer" placeholder="Antwort sprechen (● SPRECHEN) oder tippen … ⌘/Ctrl+Enter sendet"></textarea>
+            <textarea class="answer" id="answer" placeholder="Antwort sprechen oder tippen · ⌘/Ctrl+Enter sendet"></textarea>
             <div class="answer-tools">
               <button class="btn rec" id="mic">● SPRECHEN</button>
               <span class="spacer"></span>
-              <button class="btn" id="btn-ask" title="Befund erfragen, ohne dass es als Antwort zählt">NUR RÜCKFRAGE</button>
+              <button class="btn ghost" id="btn-ask" title="Befund erfragen, zählt nicht als Antwort">RÜCKFRAGE</button>
               <button class="btn primary" id="btn-send">ANTWORTEN</button>
             </div>
           </div>
         </div>
         <aside class="session-side">
           <div class="side-block"><span class="label muted">ERWARTETE STRUKTUR</span><div class="schema" id="schema"></div></div>
-          <div class="side-block"><span class="label muted">DIE 5 STATIONEN</span><div class="schema">${P.STATIONS.map((s, i) => `<div id="st-${i}">${i + 1} · ${esc(s.label)}</div>`).join('')}</div></div>
-          <div class="side-block schema">Prüfer-Stimme: <strong>${state.settings.examinerVoice ? 'an' : 'aus'}</strong> · Nachfragen pro Station: <strong>${followupsTotal}</strong> · Strenge: <strong>${esc(state.settings.strictness)}</strong><br>Rückfragen an den Prüfer (Befunde, Labor, CT) sind erlaubt und realistisch.</div>
+          <div class="side-block"><div class="schema">${P.STATIONS.map((s, i) => `<div id="st-${i}">${i + 1} · ${esc(s.label)}</div>`).join('')}</div></div>
         </aside>
       </div>`;
 
@@ -485,11 +555,17 @@
     async function begin() {
       if (!requireKey()) return;
       try {
-        const grounding = await groundingForCase(caseItem);
-        session.dossier = await chatJSON({ system: 'Du bist Prüfungsexperte und erstellst Prüfungsdossiers. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.dossierPrompt(state.settings, caseItem, grounding, previous, difficulty) }], schema: P.DOSSIER_SCHEMA, name: 'dossier' });
-        session.system = P.examinerSystem(state.settings, caseItem, session.dossier, grounding);
-        const d = session.dossier;
-        $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN</span><p>${esc(d.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span><p>${esc(d.bildgebung)}</p>`;
+        const [grounding, candidates] = await Promise.all([groundingForCase(caseItem), imageCandidates(caseItem)]);
+        const memory = memoryFor(caseItem);
+        const imageNotes = candidates.length
+          ? `BILDER: ${candidates.length} Kandidatenbild(er) sind angehängt (0-basiert nummeriert, in Reihenfolge). Herkunft: ${candidates.map((c, i) => `[${i}] ${c.credit}${c.note ? ` · Folientext: ${c.note}` : ''}`).join(' | ')}. Wähle höchstens eines und nur, wenn du sicher bist.`
+          : 'BILDER: keine Bilder verfügbar; "bild_geeignet" = false, "bild_index" = -1, "bild_befund" leer.';
+        const dossier = await chatJSON({ system: 'Du bist Prüfungsexperte und erstellst Prüfungsdossiers. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.dossierPrompt(state.settings, caseItem, grounding, previous, difficulty, imageNotes, memory) }], schema: P.DOSSIER_SCHEMA, name: 'dossier', heavy: true, images: candidates.map((c) => c.url) });
+        const chosen = dossier.bild_geeignet && candidates[dossier.bild_index] ? candidates[dossier.bild_index] : null;
+        if (!chosen) { dossier.bild_geeignet = false; dossier.bild_index = -1; }
+        session.dossier = dossier; session.image = chosen ? { src: chosen.src, credit: chosen.credit } : null;
+        session.system = P.examinerSystem(state.settings, caseItem, dossier, grounding, memory);
+        $('#dossier').innerHTML = `<span class="label muted">PATIENTENUNTERLAGEN</span><p>${esc(dossier.unterlagen)}</p><span class="label muted">BILDDOKUMENTATION</span>${chosen ? `<div class="case-images"><img src="${esc(chosen.src)}" data-zoom alt=""></div><div class="img-credit">${esc(chosen.credit)}</div>` : ''}<p>${esc(dossier.bildgebung)}</p>`;
         $('#answer-box').hidden = false;
         startTimer();
         openStation(0);
@@ -517,7 +593,7 @@
           : P.turnPrompt(i, followupNo, followupsTotal, !isLast);
         session.messages.push({ role: 'user', content: control });
         const turn = await chatJSON({ system: session.system, messages: session.messages, schema: P.TURN_SCHEMA, name: 'pruefer_zug' });
-        session.messages.pop(); // control message is not part of the visible dialogue
+        session.messages.pop();
         session.messages.push({ role: 'assistant', content: JSON.stringify(turn) });
         thinking.remove();
         const spoken = [turn.reaktion, turn.frage].filter(Boolean).join(' ');
@@ -526,7 +602,6 @@
           if (isLast) { await finish(); return; }
           openStation(i + 1);
         } else if (!onlyQuestion && session.followup > followupsTotal) {
-          // model asked despite exhausted follow-ups: accept it once, then move on next turn
           session.followup = followupsTotal;
         }
         Store.putSession(session);
@@ -542,10 +617,10 @@
       const thinking = document.createElement('div'); thinking.className = 'thinking'; thinking.innerHTML = '<span class="spinner"></span> &nbsp;BEWERTUNG'; transcriptEl.appendChild(thinking);
       const transcript = session.transcript.filter((m) => m.role !== 'system').map((m) => `${m.role === 'examiner' ? 'PRÜFER' : 'KANDIDAT'}: ${m.text}`).join('\n');
       try {
-        const fb = await chatJSON({ system: 'Du bist Prüfungsexperte und bewertest nach dem offiziellen Schema. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.feedbackPrompt(state.settings, caseItem, session.dossier, transcript) }], schema: P.FEEDBACK_SCHEMA, name: 'feedback' });
+        const fb = await chatJSON({ system: 'Du bist Prüfungsexperte und bewertest nach dem offiziellen Schema. Antworte ausschliesslich mit dem verlangten JSON.', messages: [{ role: 'user', content: P.feedbackPrompt(state.settings, caseItem, session.dossier, transcript) }], schema: P.FEEDBACK_SCHEMA, name: 'feedback', heavy: true });
         thinking.remove();
         session.feedback = fb; session.status = 'beendet'; session.endedAt = Date.now(); session.grade = fb.note;
-        (state.caseLog[caseId] = state.caseLog[caseId] || []).push({ t: Date.now(), grade: fb.note, noten: fb.noten, sessionId: session.id, variant: session.dossier.titel });
+        (state.caseLog[caseId] = state.caseLog[caseId] || []).push({ t: Date.now(), grade: fb.note, noten: fb.noten, sessionId: session.id, variant: session.dossier.titel, fehlend: (fb.fehlend || []).slice(0, 6) });
         bump('exam');
         const added = await addItems(fb.drills || [], `prüfung ${caseId}`, [caseId]);
         Store.putSession(session);
@@ -560,16 +635,17 @@
         <span class="kicker">FEEDBACK</span>
         <div class="row between"><div class="big-grade ${gradeClass(fb.note)}">${fmtGrade(fb.note)}</div><div class="meta">${esc(session.dossier.loesung.diagnose)}<br>${esc(session.dossier.loesung.klassifikation)}</div></div>
         <div class="scores">${keys.map(([k, l]) => `<div class="score"><div class="v ${gradeClass(n[k])}">${n[k]}</div><div class="k">${esc(l)}</div></div>`).join('')}</div>
+        ${session.dossier.bild_befund ? `<p class="meta" style="margin-bottom:14px">BILDBEFUND · ${esc(session.dossier.bild_befund)}</p>` : ''}
         <div class="grid2">
           <div><h3>Gefehlt / falsch</h3><ul class="clean">${(fb.fehlend || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
-          <div><h3>Gut</h3><ul class="clean">${(fb.gut || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
-            <h3 style="margin-top:18px">Merksätze</h3><ul class="clean">${(fb.merksaetze || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+          <div>${fb.gut?.length ? `<h3>Gut</h3><ul class="clean">${fb.gut.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+            <h3 style="margin-top:${fb.gut?.length ? 18 : 0}px">Merksätze</h3><ul class="clean">${(fb.merksaetze || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
         </div>
         <hr class="sep">
         <h3>Musterantwort-Gerüst</h3>
         <div class="muster">${P.STATIONS.map((s, i) => `<p><span class="label">${i + 1} · ${esc(s.label)}</span>${esc(fb.musterantwort[`station${i + 1}`])}</p>`).join('')}</div>
-        <p class="meta">${added} NEUE ABFRAGE-ITEMS AUS DEINEN LÜCKEN GESPEICHERT</p>
-        <div class="row" style="margin-top:16px"><button class="btn primary" id="fb-again">GLEICHER FALL, NEUE VARIANTE</button><button class="btn" id="fb-next">NÄCHSTER OFFENER FALL</button><button class="btn ghost" id="fb-matrix">ZUR MATRIX</button></div>`;
+        <p class="meta">${added} NEUE ABFRAGE-ITEMS AUS DEINEN LÜCKEN</p>
+        <div class="row" style="margin-top:16px"><button class="btn primary" id="fb-again">GLEICHER FALL, NEUE VARIANTE</button><button class="btn" id="fb-next">NÄCHSTER OFFENER FALL</button><button class="btn ghost" id="fb-matrix">MATRIX</button></div>`;
       transcriptEl.appendChild(div); div.scrollIntoView({ behavior: 'smooth' });
       $('#fb-again').onclick = () => { navigate(); };
       $('#fb-next').onclick = () => { const c = CASES.find((x) => caseSummary(x.id).runs === 0) || CASES[0]; location.hash = `#exam/${c.id}`; if (c.id === caseId) navigate(); };
@@ -579,24 +655,25 @@
   }
 
   // ------------------------------------------------------------------ filters (shared by quiz/lazy)
-  function filterBar(container, key, onChange, extra = '') {
+  function filterBar(container, key, opts) {
     const f = state.lastFilters[key] || (state.lastFilters[key] = { regions: [], types: [], only: 'all', source: 'all', search: '', count: state.settings.quizCount || 20 });
-    const count = filterItems(f).length;
+    const count = () => filterItems(f, opts).length;
     container.innerHTML = `
       <div class="filters" id="f-regions">${P.REGIONS.map((r) => `<span class="pill clickable ${f.regions.includes(r) ? 'on' : ''}" data-r="${esc(r)}">${esc(r)}</span>`).join('')}</div>
-      <div class="filters" id="f-types">${P.TYPES.map((t) => `<span class="pill clickable ${f.types.includes(t) ? 'on' : ''}" data-t="${t}">${t}</span>`).join('')}
-        <span style="width:12px"></span>
-        ${[['all', 'alle'], ['due', 'fällig'], ['new', 'neu'], ['weak', 'schwach']].map(([v, l]) => `<span class="pill clickable ${f.only === v ? 'on' : ''}" data-only="${v}">${l}</span>`).join('')}
-        <span style="width:12px"></span>
-        ${[['all', 'seed + generiert'], ['seed', 'nur seed'], ['custom', 'nur generiert']].map(([v, l]) => `<span class="pill clickable ${f.source === v ? 'on' : ''}" data-src="${v}">${l}</span>`).join('')}
-      </div>
       <div class="row">
-        <input type="text" id="f-search" placeholder="Thema / Stichwort (z. B. Pauwels, Schatzker, Pilon)" value="${esc(f.search)}" style="max-width:360px">
-        <select id="f-count" style="width:110px">${[10, 20, 40, 80, 999].map((n) => `<option value="${n}" ${f.count == n ? 'selected' : ''}>${n === 999 ? 'alle' : n}</option>`).join('')}</select>
-        <span class="meta" id="f-count-label">${count} ITEMS</span>
-        ${extra}
-      </div>`;
-    const update = () => { $('#f-count-label').textContent = `${filterItems(f).length} ITEMS`; Store.saveState(); onChange(f); };
+        <input type="text" id="f-search" placeholder="Stichwort" value="${esc(f.search)}" style="max-width:260px">
+        <select id="f-count" style="width:100px">${[10, 20, 40, 80, 999].map((n) => `<option value="${n}" ${f.count == n ? 'selected' : ''}>${n === 999 ? 'alle' : n}</option>`).join('')}</select>
+        <span class="meta" id="f-count-label">${count()} ITEMS</span>
+      </div>
+      <details class="plain more-filters" ${f.types.length || f.only !== 'all' || f.source !== 'all' ? 'open' : ''}><summary>FILTER</summary>
+        <div class="filters" id="f-types" style="margin-top:8px">${P.FILTER_TYPES.map((t) => `<span class="pill clickable ${f.types.includes(t) ? 'on' : ''}" data-t="${t}">${t}</span>`).join('')}
+          <span style="width:12px"></span>
+          ${[['all', 'alle'], ['due', 'fällig'], ['new', 'neu'], ['weak', 'schwach']].map(([v, l]) => `<span class="pill clickable ${f.only === v ? 'on' : ''}" data-only="${v}">${l}</span>`).join('')}
+          <span style="width:12px"></span>
+          ${[['all', 'seed + generiert'], ['seed', 'nur seed'], ['custom', 'nur generiert']].map(([v, l]) => `<span class="pill clickable ${f.source === v ? 'on' : ''}" data-src="${v}">${l}</span>`).join('')}
+        </div>
+      </details>`;
+    const update = () => { $('#f-count-label').textContent = `${count()} ITEMS`; Store.saveState(); };
     container.querySelector('#f-regions').onclick = (e) => { const p = e.target.closest('.pill'); if (!p) return; const r = p.dataset.r; f.regions = f.regions.includes(r) ? f.regions.filter((x) => x !== r) : f.regions.concat(r); p.classList.toggle('on'); update(); };
     container.querySelector('#f-types').onclick = (e) => {
       const p = e.target.closest('.pill'); if (!p) return;
@@ -612,54 +689,46 @@
   async function generateMore(f, n = 15) {
     if (!requireKey()) return 0;
     const region = f.regions[0] || P.REGIONS[Math.floor(Math.random() * P.REGIONS.length)];
-    const existing = filterItems({ regions: [region], search: f.search }).map((it) => it.q).slice(-120);
+    const existing = filterItems({ regions: [region], search: f.search }, { noImages: true }).map((it) => it.q).slice(-120);
     const grounding = await groundingForRegion(region, 12000);
-    const out = await chatJSON({ system: P.generateSystem(), messages: [{ role: 'user', content: P.generatePrompt(region, f.search, n, existing, grounding) }], schema: P.ITEMS_SCHEMA, name: 'items' });
+    const out = await chatJSON({ system: P.generateSystem(), messages: [{ role: 'user', content: P.generatePrompt(region, f.search, n, existing, grounding) }], schema: P.ITEMS_SCHEMA, name: 'items', heavy: true });
     return addItems(out.items || [], `generiert ${region}`, []);
   }
 
   // ------------------------------------------------------------------ QUIZ
   function renderQuiz() {
-    view.innerHTML = `
-      <div class="hero" style="padding-bottom:20px">
-        <span class="kicker">ABFRAGEMODUS · KLASSIFIKATIONEN · TERMINOLOGIE · KONZEPTE</span>
-        <h1>Abfrage</h1>
-        <p>Der Prüfer fragt, du antwortest gesprochen oder getippt, der Prüfer korrigiert in einem Satz und zeigt die Musterantwort. Falsche Items kommen schneller wieder.</p>
-      </div>
-      <div id="filters"></div>
-      <div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn" id="btn-gen">15 NEUE FRAGEN GENERIEREN</button></div>
-      <div id="stage" style="margin-top:28px"></div>`;
-    const f = filterBar($('#filters'), 'quiz', () => {});
+    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button></div><div id="stage" style="margin-top:28px"></div>`;
+    const f = filterBar($('#filters'), 'quiz', {});
     $('#btn-gen').onclick = async () => {
-      const b = $('#btn-gen'); b.disabled = true; b.innerHTML = '<span class="spinner"></span> GENERIERE';
-      try { const n = await generateMore(f); toast(`${n} neue Items gespeichert`); $('#f-count-label').textContent = `${filterItems(f).length} ITEMS`; }
+      const b = $('#btn-gen'); b.disabled = true; b.innerHTML = '<span class="spinner"></span>';
+      try { const n = await generateMore(f); toast(`${n} neue Items`); $('#f-count-label').textContent = `${filterItems(f).length} ITEMS`; }
       catch (error) { toast(error.message, true); }
-      b.disabled = false; b.textContent = '15 NEUE FRAGEN GENERIEREN';
+      b.disabled = false; b.textContent = '15 NEUE FRAGEN';
     };
     $('#btn-start').onclick = () => {
       if (!requireKey()) return;
       const items = pickSession(filterItems(f), f.count);
       if (!items.length) { toast('Keine Items für diese Auswahl.', true); return; }
-      runQuiz(items, $('#stage'));
       $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true;
+      runQuiz(items, $('#stage'));
     };
   }
   function runQuiz(items, stage) {
-    let i = 0; const results = []; let phase = 'ask'; let busy = false;
-    const requeue = [];
+    let i = 0; const results = []; let phase = 'ask'; let busy = false; const requeue = [];
     function show() {
       const item = items[i];
       if (!item) return summary();
       const s = stats(item.id);
       stage.innerHTML = `
-        <div class="quiz-head"><span class="meta">${i + 1}/${items.length} · ${esc(item.region)} · ${esc(item.type)}${s.seen ? ` · BOX ${s.box}` : ' · NEU'}</span><span class="meta">${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</span></div>
+        <div class="quiz-head"><span class="meta">${i + 1}/${items.length} · ${esc(item.region)}${s.seen ? ` · BOX ${s.box}` : ''}</span><span class="meta">${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</span></div>
         <div class="meta">${esc(item.topic)}</div>
         <div class="quiz-q">${esc(item.q)}</div>
-        <textarea class="answer" id="answer" placeholder="Antwort … Enter sendet, Shift+Enter neue Zeile"></textarea>
+        ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
+        <textarea class="answer" id="answer" placeholder="Antwort · Enter sendet, Shift+Enter neue Zeile"></textarea>
         <div class="answer-tools"><button class="btn rec" id="mic">● SPRECHEN</button><span class="spacer"></span><button class="btn ghost" id="btn-skip">WEISS ICH NICHT</button><button class="btn primary" id="btn-send">ANTWORTEN</button></div>
         <div id="verdict"></div>`;
       const ta = $('#answer'); ta.focus();
-      wireMic($('#mic'), ta, () => { if (state.settings.readAloud) {} });
+      wireMic($('#mic'), ta);
       ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (phase === 'ask') $('#btn-send').click(); else next(); } });
       $('#btn-send').onclick = () => grade(ta.value.trim());
       $('#btn-skip').onclick = () => grade('');
@@ -669,35 +738,35 @@
       if (busy) return; busy = true;
       const item = items[i];
       $('#btn-send').disabled = true; $('#btn-skip').disabled = true;
-      let result;
-      if (!answer) result = { score: 0, urteil: 'Keine Antwort.', fehlend: [] };
-      else {
-        $('#verdict').innerHTML = '<div class="thinking" style="margin-top:14px"><span class="spinner"></span></div>';
-        try { result = await chatJSON({ system: P.gradeSystem(state.settings), messages: [{ role: 'user', content: P.gradePrompt(item, answer) }], schema: P.GRADE_SCHEMA, name: 'korrektur' }); }
-        catch (error) { $('#verdict').innerHTML = `<p class="warn">${esc(error.message)}</p>`; $('#btn-send').disabled = false; $('#btn-skip').disabled = false; busy = false; return; }
-      }
+      let result; let modelAnswer = item.a;
+      $('#verdict').innerHTML = '<div class="thinking" style="margin-top:14px"><span class="spinner"></span></div>';
+      try {
+        if (item.type === 'bild') {
+          const url = await toDataUrl(item.img);
+          result = await chatJSON({ system: P.imageGradeSystem(state.settings), messages: [{ role: 'user', content: P.imageGradePrompt(item, answer) }], schema: P.IMAGE_GRADE_SCHEMA, name: 'bildkorrektur', images: [url] });
+          modelAnswer = result.musterantwort || item.a;
+        } else if (!answer) result = { score: 0, urteil: 'Keine Antwort.', fehlend: [] };
+        else result = await chatJSON({ system: P.gradeSystem(state.settings), messages: [{ role: 'user', content: P.gradePrompt(item, answer) }], schema: P.GRADE_SCHEMA, name: 'korrektur' });
+      } catch (error) { $('#verdict').innerHTML = `<p class="warn">${esc(error.message)}</p>`; $('#btn-send').disabled = false; $('#btn-skip').disabled = false; busy = false; return; }
       const score = Math.max(0, Math.min(2, Number(result.score) || 0));
       results.push(score); schedule(item.id, score); bump('quiz'); if (score === 2) bump('quizRight');
       if (score === 0 && !requeue.includes(item.id) && items.length < 60) { requeue.push(item.id); items.push(item); }
       $('#verdict').innerHTML = `
         <div class="verdict s${score}">
           <span class="label ${score === 2 ? 'ok' : score === 1 ? 'signal' : 'warn'}">${score === 2 ? 'KORREKT' : score === 1 ? 'TEILWEISE' : 'FALSCH'}</span>
-          <div class="model">${esc(item.a)}</div>
+          <div class="model">${esc(modelAnswer)}</div>
           <div class="judge">${esc(result.urteil || '')}${result.fehlend?.length ? ` · fehlt: ${esc(result.fehlend.join(', '))}` : ''}</div>
-          <div class="row" style="margin-top:14px"><button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button><button class="btn ghost small" id="btn-fix" title="Musterantwort ist falsch oder unpassend">ITEM MELDEN</button></div>
+          <div class="row" style="margin-top:14px"><button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button><button class="btn ghost small" id="btn-fix" title="Musterantwort falsch oder unpassend">MELDEN</button></div>
         </div>`;
       phase = 'show'; busy = false;
       $('#btn-next').onclick = next; $('#btn-next').focus();
-      $('#btn-fix').onclick = () => { const s = stats(item.id); s.flag = !s.flag; state.items[item.id] = s; Store.saveState(); toast(s.flag ? 'Markiert · erscheint unter STATUS' : 'Markierung entfernt'); };
-      if (state.settings.readAloud) readAloud(item.a);
+      $('#btn-fix').onclick = () => { const s = stats(item.id); s.flag = !s.flag; state.items[item.id] = s; Store.saveState(); toast(s.flag ? 'Markiert · unter STATUS' : 'Markierung entfernt'); };
+      if (state.settings.readAloud) readAloud(modelAnswer);
     }
     function next() { i += 1; show(); }
     function summary() {
       const n = results.length; const pts = results.reduce((a, b) => a + b, 0);
-      stage.innerHTML = `
-        <span class="kicker">SESSION BEENDET</span>
-        <div class="row" style="gap:24px"><div class="big-grade">${n ? Math.round(100 * pts / (2 * n)) : 0}%</div><div class="meta">${n} FRAGEN · ${results.filter((r) => r === 2).length} KORREKT · ${results.filter((r) => r === 1).length} TEILWEISE · ${results.filter((r) => r === 0).length} FALSCH</div></div>
-        <div class="row" style="margin-top:22px"><button class="btn primary" id="again">NOCHMALS</button><button class="btn" id="to-status">STATUS</button></div>`;
+      stage.innerHTML = `<span class="kicker">FERTIG</span><div class="row" style="gap:24px"><div class="big-grade">${n ? Math.round(100 * pts / (2 * n)) : 0}%</div><div class="meta">${n} FRAGEN · ${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</div></div><div class="row" style="margin-top:22px"><button class="btn primary" id="again">NOCHMALS</button><button class="btn ghost" id="to-status">STATUS</button></div>`;
       $('#again').onclick = () => navigate(); $('#to-status').onclick = () => { location.hash = '#status'; };
     }
     show();
@@ -705,19 +774,11 @@
 
   // ------------------------------------------------------------------ LAZY
   function renderLazy() {
-    view.innerHTML = `
-      <div class="hero" style="padding-bottom:20px">
-        <span class="kicker">LAZY MODE · KEIN TIPPEN · KEINE API</span>
-        <h1>Lazy</h1>
-        <p>Frage lesen (oder vorlesen lassen), Antwort im Kopf, <span class="kbd">Space</span> zeigt die Musterantwort, dann <span class="kbd">1</span> nicht gewusst · <span class="kbd">2</span> halb · <span class="kbd">3</span> gewusst.</p>
-      </div>
-      <div id="filters"></div>
-      <div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ${state.settings.readAloud ? 'on' : ''}" id="btn-read">VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}</button></div>
-      <div id="stage" style="margin-top:28px"></div>`;
-    const f = filterBar($('#filters'), 'lazy', () => {});
+    view.innerHTML = `${hero('LAZY · <span class="kbd">Space</span> ZEIGT · <span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> BEWERTEN', 'Lazy')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost ${state.settings.readAloud ? 'on' : ''}" id="btn-read">VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}</button></div><div id="stage" style="margin-top:28px"></div>`;
+    const f = filterBar($('#filters'), 'lazy', { lazy: true });
     $('#btn-read').onclick = (e) => { state.settings.readAloud = !state.settings.readAloud; Store.saveState(); e.target.classList.toggle('on'); e.target.textContent = `VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}`; };
     $('#btn-start').onclick = () => {
-      const items = pickSession(filterItems(f), f.count);
+      const items = pickSession(filterItems(f, { lazy: true }), f.count);
       if (!items.length) { toast('Keine Items für diese Auswahl.', true); return; }
       $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true;
       runLazy(items, $('#stage'));
@@ -729,10 +790,11 @@
       const item = items[i]; if (!item) return summary();
       revealed = false;
       stage.innerHTML = `
-        <div class="quiz-head"><span class="meta">${i + 1}/${items.length} · ${esc(item.region)} · ${esc(item.type)}</span><span class="meta">${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</span></div>
+        <div class="quiz-head"><span class="meta">${i + 1}/${items.length} · ${esc(item.region)}</span><span class="meta">${results.filter((r) => r === 2).length} ✓ · ${results.filter((r) => r === 1).length} ~ · ${results.filter((r) => r === 0).length} ✗</span></div>
         <div class="meta">${esc(item.topic)}</div>
         <div class="quiz-q">${esc(item.q)}</div>
-        <div id="a"><button class="btn" id="btn-reveal">ANTWORT ZEIGEN <span class="kbd">Space</span></button></div>`;
+        ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
+        <div id="a"><button class="btn" id="btn-reveal">ANTWORT <span class="kbd">Space</span></button></div>`;
       $('#btn-reveal').onclick = reveal;
       if (state.settings.readAloud) readAloud(item.q);
     }
@@ -746,7 +808,7 @@
     }
     function rate(score) { const item = items[i]; results.push(score); schedule(item.id, score); bump('lazy'); i += 1; show(); }
     function onKey(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || !lightbox.hidden) return;
       if (e.key === ' ') { e.preventDefault(); reveal(); }
       if (revealed && ['1', '2', '3'].includes(e.key)) rate(Number(e.key) - 1);
     }
@@ -763,25 +825,21 @@
 
   // ------------------------------------------------------------------ FREE
   function renderFree() {
-    const regionOptions = ['', ...P.REGIONS].map((r) => `<option value="${esc(r)}">${r ? esc(r) : 'kein Bezug'}</option>`).join('');
-    const caseOptions = ['', ...CASES.map((c) => c.id)].map((id) => `<option value="${id}">${id ? esc(`${id.toUpperCase()} · ${caseById(id).title}`) : 'kein Fall'}</option>`).join('');
+    const regionOptions = ['', ...P.REGIONS].map((r) => `<option value="${esc(r)}">${r ? esc(r) : 'Region'}</option>`).join('');
+    const caseOptions = ['', ...CASES.map((c) => c.id)].map((id) => `<option value="${id}">${id ? esc(`${id.toUpperCase()} · ${caseById(id).title}`) : 'Fall'}</option>`).join('');
     view.innerHTML = `
-      <div class="hero" style="padding-bottom:20px">
-        <span class="kicker">FREIER MODUS</span>
-        <h1>Frei</h1>
-        <p>Sag dem Prüfer, was du willst: abfragen lassen, einen Begriff erklären, eine Station simulieren, deine Antwort korrigieren.</p>
-      </div>
-      <div class="row" style="margin-bottom:12px"><select id="free-region" style="max-width:260px">${regionOptions}</select><select id="free-case" style="max-width:420px">${caseOptions}</select><button class="btn ghost small" id="free-reset">NEUES GESPRÄCH</button></div>
+      ${hero('FREI', 'Frei')}
+      <div class="row" style="margin-bottom:12px"><select id="free-region" style="max-width:240px">${regionOptions}</select><select id="free-case" style="max-width:400px">${caseOptions}</select><button class="btn ghost small" id="free-reset">NEU</button></div>
       <div class="quick" id="quick">
         <span class="pill clickable" data-q="Frag mich 10 Klassifikationen aus dieser Region ab, eine nach der anderen.">10 KLASSIFIKATIONEN</span>
         <span class="pill clickable" data-q="Frag mich 10 Begriffe ab: 'Was ist ein/eine ...?' – eine Frage pro Zug.">10 BEGRIFFE</span>
         <span class="pill clickable" data-q="Simuliere die Station 'Therapeutische Optionen, Indikation, Risiken, Aufklärung' zu diesem Fall. Stelle die Eröffnungsfrage.">STATION THERAPIE</span>
         <span class="pill clickable" data-q="Erkläre mir die wichtigsten AO-Grundprinzipien zu diesem Thema (absolute vs. relative Stabilität, Implantatwahl), dann prüfe mich.">AO-PRINZIPIEN</span>
-        <span class="pill clickable" data-q="Gib mir die Zahlen und Grenzwerte dieser Region als Liste, dann frag mich 5 davon ab.">ZAHLEN & GRENZWERTE</span>
+        <span class="pill clickable" data-q="Gib mir die Zahlen und Grenzwerte dieser Region als Liste, dann frag mich 5 davon ab.">ZAHLEN</span>
       </div>
       <div class="chat" id="chat"></div>
       <div class="answer-box">
-        <textarea class="answer" id="answer" placeholder="Nachricht … ⌘/Ctrl+Enter sendet"></textarea>
+        <textarea class="answer" id="answer" placeholder="Nachricht · ⌘/Ctrl+Enter sendet"></textarea>
         <div class="answer-tools"><button class="btn rec" id="mic">● SPRECHEN</button><span class="spacer"></span><button class="btn primary" id="btn-send">SENDEN</button></div>
       </div>`;
     const chat = $('#chat'); const ta = $('#answer'); let messages = []; let busy = false;
@@ -803,7 +861,7 @@
         let grounding = '';
         if (cid) grounding = await groundingForCase(caseById(cid), 12000);
         else if (region) grounding = await groundingForRegion(region, 12000);
-        const full = await chatStream({ system: P.freeSystem(state.settings, grounding), messages, onDelta: (t) => { body.textContent = t; } });
+        const full = await chatStream({ system: P.freeSystem(state.settings, grounding, memoryFor(cid ? caseById(cid) : null, region || null)), messages, onDelta: (t) => { body.textContent = t; } });
         body.textContent = full; messages.push({ role: 'assistant', content: full });
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
       } catch (error) { body.innerHTML = `<span class="warn">${esc(error.message)}</span>`; }
@@ -838,7 +896,7 @@
     if (window.JSZip) return Promise.resolve(window.JSZip);
     if (!jszipPromise) {
       jszipPromise = (async () => {
-        for (const src of JSZIP_SOURCES) { try { await loadScript(src); if (window.JSZip) return window.JSZip; } catch { /* next source */ } }
+        for (const src of JSZIP_SOURCES) { try { await loadScript(src); if (window.JSZip) return window.JSZip; } catch { /* next */ } }
         jszipPromise = null;
         throw new Error('JSZip konnte nicht geladen werden (Internet?)');
       })();
@@ -849,18 +907,41 @@
     const doc = new DOMParser().parseFromString(xml, 'application/xml');
     return Array.from(doc.getElementsByTagNameNS('*', tag)).map((n) => n.textContent).join(' ');
   }
-  async function extractPptx(file, progress) {
+  async function extractPptx(file, progress, images) {
     const JSZip = await loadJSZip(); const zip = await JSZip.loadAsync(file);
     const slides = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
-    const out = [];
+    const out = []; const seen = new Set();
     for (const [idx, name] of slides.entries()) {
       const num = name.match(/\d+/)[0];
       const xml = await zip.file(name).async('string');
-      const paras = Array.from(new DOMParser().parseFromString(xml, 'application/xml').getElementsByTagNameNS('*', 'p')).map((p) => Array.from(p.getElementsByTagNameNS('*', 't')).map((t) => t.textContent).join('')).filter((t) => t.trim());
+      const doc = new DOMParser().parseFromString(xml, 'application/xml');
+      const paras = Array.from(doc.getElementsByTagNameNS('*', 'p')).map((p) => Array.from(p.getElementsByTagNameNS('*', 't')).map((t) => t.textContent).join('')).filter((t) => t.trim());
       const notes = zip.file(`ppt/notesSlides/notesSlide${num}.xml`);
       if (notes) { const t = xmlText(await notes.async('string'), 't').trim(); if (t && !/^\d+$/.test(t)) paras.push(`[Notiz] ${t}`); }
       if (paras.length) out.push(`--- Folie ${num} ---\n${paras.join('\n')}`);
-      progress(`Folie ${idx + 1}/${slides.length}`);
+      if (images && serverOk) {
+        const relFile = zip.file(`ppt/slides/_rels/slide${num}.xml.rels`);
+        if (relFile) {
+          const rels = new DOMParser().parseFromString(await relFile.async('string'), 'application/xml');
+          for (const rel of Array.from(rels.getElementsByTagName('Relationship'))) {
+            if (!/image/.test(rel.getAttribute('Type') || '')) continue;
+            const target = `ppt/${rel.getAttribute('Target').replace(/^\.\.\//, '')}`;
+            if (seen.has(target) || !zip.file(target)) continue; seen.add(target);
+            try {
+              const blob = await zip.file(target).async('blob');
+              const bmp = await createImageBitmap(blob);
+              if (Math.min(bmp.width, bmp.height) < 300 || bmp.width * bmp.height < 160000) continue;
+              const scale = Math.min(1, 1400 / Math.max(bmp.width, bmp.height));
+              const canvas = document.createElement('canvas'); canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+              canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+              const jpeg = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.82));
+              const stored = await Store.uploadFile(jpeg, `img-${file.name.replace(/\.pptx$/i, '')}-s${num}.jpg`);
+              if (stored) images.push({ src: stored, slide: Number(num), text: paras.join(' ').slice(0, 300) });
+            } catch { /* unsupported image format (emf, wmf) */ }
+          }
+        }
+      }
+      progress(`Folie ${idx + 1}/${slides.length}${images?.length ? ` · ${images.length} Bilder` : ''}`);
     }
     return out.join('\n');
   }
@@ -872,7 +953,7 @@
   }
   async function ocrPages(images) {
     const content = [{ type: 'text', text: P.ocrPrompt() }].concat(images.map((url) => ({ type: 'image_url', image_url: { url, detail: 'high' } })));
-    const res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(baseBody(state.settings.model, { messages: [{ role: 'user', content }] })) });
+    const res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(baseBody(activeModel(), false, { messages: [{ role: 'user', content }] })) });
     const data = await res.json(); return data.choices?.[0]?.message?.content || '';
   }
   async function extractPdf(file, progress) {
@@ -902,21 +983,23 @@
     while (i < text.length) { let end = Math.min(text.length, i + size); const cut = text.lastIndexOf('\n', end); if (cut > i + size * 0.6) end = cut; chunks.push(text.slice(i, end)); i = end; }
     return chunks;
   }
+  function materialImageItems() {
+    const out = [];
+    for (const m of materialsIndex) for (const [k, img] of (m.images || []).entries()) {
+      const c = caseById(m.caseIds?.[0]);
+      out.push({ id: `img-${m.id}-${k}`, type: 'bild', kind: 'xray', region: m.regions?.[0] || regionOfCase(c), topic: c?.title || m.name, q: P.IMAGE_QUESTIONS.xray, a: img.text || '', img: img.src, src: m.name, slide: img.slide, caseIds: m.caseIds || [], source: 'bild' });
+    }
+    return out;
+  }
   function renderMaterial() {
     const builtin = Object.entries(CORPUS).map(([cid, entries]) => ({ cid, entries }));
     view.innerHTML = `
-      <div class="hero" style="padding-bottom:20px">
-        <span class="kicker">MATERIAL · DUMP PAD</span>
-        <h1>Material</h1>
-        <p>PDF, PPTX, DOCX, TXT in beliebiger Grösse ablegen. Der Text wird lokal extrahiert (gescannte PDF-Seiten per OCR), gespeichert, den Fällen zugeordnet und in neue Abfrage-Items verwandelt. Die Items landen in ABFRAGE und LAZY, der Text fliesst in die Fallprüfungen ein.</p>
-      </div>
-      <div class="drop" id="drop">DATEIEN HIER ABLEGEN ODER KLICKEN<input type="file" id="file" multiple accept=".pdf,.pptx,.docx,.txt,.md" hidden></div>
+      ${hero('MATERIAL', 'Material')}
+      <div class="drop" id="drop">PDF · PPTX · DOCX · TXT HIER ABLEGEN<input type="file" id="file" multiple accept=".pdf,.pptx,.docx,.txt,.md" hidden></div>
       <div class="progress" id="progress"></div>
-      <h2 style="margin-top:32px">Abgelegt</h2>
-      <div class="table-wrap"><table class="table" id="mat-table"><thead><tr><th>Datei</th><th>Zeichen</th><th>Fälle</th><th>Items</th><th></th></tr></thead><tbody></tbody></table></div>
-      <h2 style="margin-top:32px">Eingebaut: Präsentationen aus dem Fall-Tracker</h2>
-      <p class="meta">${builtin.reduce((a, b) => a + b.entries.length, 0)} PRÄSENTATIONEN · ${builtin.length} FÄLLE · ${seedBank.length} SEED-ITEMS</p>
-      <div class="table-wrap"><table class="table"><tbody>${builtin.map(({ cid, entries }) => `<tr><td class="num" style="text-align:left">${esc(cid.toUpperCase())}</td><td>${esc(caseById(cid)?.title || '')}</td><td class="muted">${entries.map((e) => esc(e.name)).join(' · ')}</td></tr>`).join('')}</tbody></table></div>`;
+      <div class="table-wrap" style="margin-top:28px"><table class="table" id="mat-table"><thead><tr><th>Datei</th><th class="num">Zeichen</th><th>Fälle</th><th class="num">Items</th><th></th></tr></thead><tbody></tbody></table></div>
+      <details class="plain" style="margin-top:28px"><summary>EINGEBAUT · ${builtin.reduce((a, b) => a + b.entries.length, 0)} PRÄSENTATIONEN · ${IMAGES.length} BILDER · ${seedBank.length} SEED-ITEMS</summary>
+      <div class="table-wrap"><table class="table"><tbody>${builtin.map(({ cid, entries }) => `<tr><td class="num" style="text-align:left">${esc(cid.toUpperCase())}</td><td>${esc(caseById(cid)?.title || '')}</td><td class="muted">${entries.map((e) => esc(e.name)).join(' · ')}</td></tr>`).join('')}</tbody></table></div></details>`;
     const drop = $('#drop'); const input = $('#file'); const progress = $('#progress');
     drop.onclick = () => input.click();
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
@@ -926,14 +1009,14 @@
     function table() {
       $('#mat-table tbody').innerHTML = materialsIndex.length ? materialsIndex.map((m) => {
         const items = customBank.filter((it) => it.source === `material ${m.id}`).length;
-        return `<tr data-id="${m.id}"><td>${esc(m.name)}<br><span class="meta">${esc(m.status || '')}</span></td><td class="num">${(m.chars || 0).toLocaleString('de-CH')}</td><td class="muted">${(m.caseIds || []).map((id) => esc(id.toUpperCase())).join(', ') || '–'}</td><td class="num">${items}</td>
-          <td style="text-align:right;white-space:nowrap"><button class="btn small" data-act="gen">ITEMS GENERIEREN</button> <button class="btn small ghost danger" data-act="del">LÖSCHEN</button></td></tr>`;
+        return `<tr data-id="${m.id}"><td>${esc(m.name)}<br><span class="meta">${esc(m.status || '')}${m.images?.length ? ` · ${m.images.length} BILDER` : ''}</span></td><td class="num">${(m.chars || 0).toLocaleString('de-CH')}</td><td class="muted">${(m.caseIds || []).map((id) => esc(id.toUpperCase())).join(', ') || '–'}</td><td class="num">${items}</td>
+          <td style="text-align:right;white-space:nowrap"><button class="btn small ghost" data-act="gen">ITEMS</button> <button class="btn small ghost danger" data-act="del">LÖSCHEN</button></td></tr>`;
       }).join('') : '<tr><td colspan="5" class="muted">Noch nichts abgelegt.</td></tr>';
     }
     table();
     $('#mat-table').onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return; const id = b.closest('tr').dataset.id;
-      if (b.dataset.act === 'del') { if (confirm('Material und seine generierten Items löschen?')) { await Store.deleteMaterial(id); customBank = customBank.filter((it) => it.source !== `material ${id}`); await Store.saveBank(); table(); } }
+      if (b.dataset.act === 'del') { if (confirm('Material und seine generierten Items löschen?')) { await Store.deleteMaterial(id); customBank = customBank.filter((it) => it.source !== `material ${id}`); await Store.saveBank(); imageBank = imageBank.filter((it) => !it.id.startsWith(`img-${id}-`)); table(); } }
       if (b.dataset.act === 'gen') { b.disabled = true; await generateFromMaterial(id, (t) => { progress.textContent = t; }); b.disabled = false; table(); }
     };
     async function handleFiles(files) {
@@ -941,24 +1024,25 @@
         const id = `m${uid()}`; const ext = file.name.toLowerCase().split('.').pop();
         progress.textContent = `${file.name} · lese …`;
         try {
-          let text = '';
+          let text = ''; const images = [];
           const report = (t) => { progress.textContent = `${file.name} · ${t}`; };
           if (ext === 'pdf') text = await extractPdf(file, report);
-          else if (ext === 'pptx') text = await extractPptx(file, report);
+          else if (ext === 'pptx') text = await extractPptx(file, report, state.settings.images ? images : null);
           else if (ext === 'docx') text = await extractDocx(file);
           else text = await file.text();
           text = text.replace(/[ \t]+/g, ' ').trim();
-          if (!text) throw new Error('kein Text gefunden');
-          const material = { id, name: file.name, kind: ext, chars: text.length, addedAt: Date.now(), caseIds: [], regions: [], status: 'extrahiert', text };
+          if (!text && !images.length) throw new Error('kein Text gefunden');
+          const material = { id, name: file.name, kind: ext, chars: text.length, addedAt: Date.now(), caseIds: [], regions: [], status: 'extrahiert', images, text };
           Store.uploadFile(file);
-          if (state.settings.apiKey) {
+          if (state.settings.apiKey && text) {
             report('ordne Fällen zu …');
-            try { const tags = await chatJSON({ system: 'Du ordnest Lernmaterial Prüfungsfällen zu. Antworte nur mit JSON.', messages: [{ role: 'user', content: P.tagPrompt(material, text.slice(0, 5000), CASES) }], schema: P.TAG_SCHEMA, name: 'zuordnung' }); material.caseIds = (tags.caseIds || []).filter((x) => caseById(x)); material.regions = (tags.regions || []).filter((r) => P.REGIONS.includes(r)); } catch { /* tagging is optional */ }
+            try { const tags = await chatJSON({ system: 'Du ordnest Lernmaterial Prüfungsfällen zu. Antworte nur mit JSON.', messages: [{ role: 'user', content: P.tagPrompt(material, text.slice(0, 5000), CASES) }], schema: P.TAG_SCHEMA, name: 'zuordnung' }); material.caseIds = (tags.caseIds || []).filter((x) => caseById(x)); material.regions = (tags.regions || []).filter((r) => P.REGIONS.includes(r)); } catch { /* optional */ }
           }
           await Store.putMaterial(material);
+          imageBank = imageBank.filter((it) => !it.id.startsWith(`img-${id}-`)).concat(materialImageItems().filter((it) => it.id.startsWith(`img-${id}-`)));
           table();
-          progress.textContent = `${file.name} · gespeichert (${text.length.toLocaleString('de-CH')} Zeichen)`;
-          if (state.settings.apiKey) await generateFromMaterial(id, (t) => { progress.textContent = t; });
+          progress.textContent = `${file.name} · gespeichert (${text.length.toLocaleString('de-CH')} Zeichen${images.length ? `, ${images.length} Bilder` : ''})`;
+          if (state.settings.apiKey && text) await generateFromMaterial(id, (t) => { progress.textContent = t; });
           table();
         } catch (error) { progress.textContent = `${file.name} · Fehler: ${error.message}`; toast(error.message, true); }
       }
@@ -971,13 +1055,12 @@
     for (const [i, chunk] of chunks.entries()) {
       report(`${material.name} · Items aus Abschnitt ${i + 1}/${chunks.length} … (${total} bisher)`);
       try {
-        const out = await chatJSON({ system: P.extractSystem(), messages: [{ role: 'user', content: P.extractPrompt(material, chunk, i, chunks.length) }], schema: P.ITEMS_SCHEMA, name: 'items' });
+        const out = await chatJSON({ system: P.extractSystem(), messages: [{ role: 'user', content: P.extractPrompt(material, chunk, i, chunks.length) }], schema: P.ITEMS_SCHEMA, name: 'items', heavy: true });
         const items = (out.items || []).map((it) => ({ ...it, region: material.regions?.length && !P.REGIONS.includes(it.region) ? material.regions[0] : it.region }));
         total += await addItems(items, `material ${id}`, material.caseIds || []);
       } catch (error) { report(`${material.name} · Abschnitt ${i + 1}: ${error.message}`); await sleep(1500); }
     }
-    material.status = `${total} Items generiert · ${new Date().toLocaleDateString('de-CH')}`;
-    delete material.items;
+    material.status = `${total} Items · ${new Date().toLocaleDateString('de-CH')}`;
     await Store.putMaterial(material);
     report(`${material.name} · ${total} neue Items`);
     return total;
@@ -991,7 +1074,7 @@
       const seen = its.filter((it) => stats(it.id).seen);
       const acc = seen.length ? seen.reduce((a, it) => a + (accuracy(it.id) ?? 0), 0) / seen.length : null;
       const due = its.filter((it) => { const s = stats(it.id); return s.seen && s.due <= Date.now(); }).length;
-      const cases = CASES.filter((c) => (P.CASE_REGION_TO_DRILL[c.region] || [])[0] === r);
+      const cases = CASES.filter((c) => regionOfCase(c) === r);
       const grades = cases.map((c) => caseSummary(c.id).mean).filter((g) => g != null);
       const mean = grades.length ? grades.reduce((a, b) => a + b, 0) / grades.length : null;
       return { r, total: its.length, seen: seen.length, acc, due, exams: grades.length, cases: cases.length, mean };
@@ -999,29 +1082,29 @@
     const weakItems = items.filter((it) => stats(it.id).seen).map((it) => ({ it, acc: accuracy(it.id) })).sort((a, b) => a.acc - b.acc).slice(0, 15);
     const flagged = items.filter((it) => stats(it.id).flag);
     const days = []; for (let i = 13; i >= 0; i -= 1) { const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10); days.push({ d, ...(state.daily[d] || {}) }); }
-    const max = Math.max(1, ...days.map((d) => (d.quiz || 0) + (d.lazy || 0) + (d.exam || 0) * 10));
-    const t = state.daily[today()] || {}; const todayN = (t.quiz || 0) + (t.lazy || 0) + (t.exam || 0) * 10;
+    const load = (d) => (d.quiz || 0) + (d.lazy || 0) + (d.exam || 0) * 10;
+    const max = Math.max(1, ...days.map(load));
+    const todayN = load(state.daily[today()] || {});
     const examsTotal = Object.values(state.caseLog).reduce((a, l) => a + l.length, 0);
     view.innerHTML = `
-      <div class="hero" style="padding-bottom:20px"><span class="kicker">STATUS · T−${daysLeft()} TAGE</span><h1>Status</h1></div>
+      ${hero(`STATUS · T−${daysLeft()}`, 'Status')}
       <div class="grid3">
-        <div class="stat"><div class="v ${todayN >= state.settings.dailyGoal ? 'ok' : ''}">${todayN}<span class="muted" style="font-size:14px">/${state.settings.dailyGoal}</span></div><div class="k">heute (Fragen + 10 × Fälle)</div></div>
-        <div class="stat"><div class="v">${items.filter((it) => { const s = stats(it.id); return s.seen && s.due <= Date.now(); }).length}</div><div class="k">Items fällig</div></div>
+        <div class="stat"><div class="v ${todayN >= state.settings.dailyGoal ? 'ok' : ''}">${todayN}<span class="muted" style="font-size:14px">/${state.settings.dailyGoal}</span></div><div class="k">heute · Fragen + 10 × Fälle</div></div>
+        <div class="stat"><div class="v">${items.filter((it) => { const s = stats(it.id); return s.seen && s.due <= Date.now(); }).length}</div><div class="k">fällig</div></div>
         <div class="stat"><div class="v">${examsTotal}</div><div class="k">Fallprüfungen · ${CASES.filter((c) => caseSummary(c.id).runs).length}/${CASES.length} Fälle</div></div>
       </div>
-      <div class="days" title="letzte 14 Tage">${days.map((d) => `<span title="${d.d}: ${d.quiz || 0} Abfrage · ${d.lazy || 0} Lazy · ${d.exam || 0} Fälle"><i style="height:${Math.round(100 * ((d.quiz || 0) + (d.lazy || 0) + (d.exam || 0) * 10) / max)}%"></i></span>`).join('')}</div>
+      <div class="days">${days.map((d) => `<span title="${d.d}: ${d.quiz || 0} Abfrage · ${d.lazy || 0} Lazy · ${d.exam || 0} Fälle"><i style="height:${Math.round(100 * load(d) / max)}%"></i></span>`).join('')}</div>
       <hr class="sep">
-      <h2>Nach Region</h2>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Region</th><th class="num">Items</th><th class="num">gesehen</th><th class="num">Trefferquote</th><th class="num">fällig</th><th class="num">Fälle geprüft</th><th class="num">Ø Note</th></tr></thead>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Region</th><th class="num">Items</th><th class="num">gesehen</th><th class="num">Treffer</th><th class="num">fällig</th><th class="num">Fälle</th><th class="num">Ø</th></tr></thead>
       <tbody>${regionRows.map((x) => `<tr><td>${esc(x.r)}<div class="bar"><span style="width:${x.total ? Math.round(100 * x.seen / x.total) : 0}%"></span></div></td><td class="num">${x.total}</td><td class="num">${x.seen}</td><td class="num ${x.acc == null ? 'faint' : x.acc < 0.6 ? 'warn' : x.acc < 0.8 ? 'signal' : 'ok'}">${x.acc == null ? '–' : `${Math.round(x.acc * 100)}%`}</td><td class="num">${x.due}</td><td class="num">${x.exams}/${x.cases}</td><td class="num ${gradeClass(x.mean)}">${fmtGrade(x.mean)}</td></tr>`).join('')}</tbody></table></div>
       <hr class="sep">
       <div class="grid2">
-        <div><h2>Schwächste Items</h2>${weakItems.length ? `<ul class="clean">${weakItems.map(({ it, acc }) => `<li><span class="num ${acc < 0.5 ? 'warn' : 'signal'}">${Math.round(acc * 100)}%</span> &nbsp;${esc(it.q)}</li>`).join('')}</ul>` : '<p class="muted">Noch keine Daten.</p>'}</div>
-        <div><h2>Schwächste Fälle</h2>${(() => { const g = CASES.filter((c) => caseSummary(c.id).mean != null).sort((a, b) => caseSummary(a.id).mean - caseSummary(b.id).mean).slice(0, 12); return g.length ? `<ul class="clean">${g.map((c) => `<li><span class="num ${gradeClass(caseSummary(c.id).mean)}">${fmtGrade(caseSummary(c.id).mean)}</span> &nbsp;<a href="#exam/${c.id}">${esc(c.title)}</a></li>`).join('')}</ul>` : '<p class="muted">Noch keine Fallprüfung.</p>'; })()}</div>
+        <div><h3>Schwächste Items</h3>${weakItems.length ? `<ul class="clean">${weakItems.map(({ it, acc }) => `<li><span class="num ${acc < 0.5 ? 'warn' : 'signal'}">${Math.round(acc * 100)}%</span> &nbsp;${esc(it.q)}</li>`).join('')}</ul>` : '<p class="muted">Noch keine Daten.</p>'}</div>
+        <div><h3>Schwächste Fälle</h3>${(() => { const g = CASES.filter((c) => caseSummary(c.id).mean != null).sort((a, b) => caseSummary(a.id).mean - caseSummary(b.id).mean).slice(0, 12); return g.length ? `<ul class="clean">${g.map((c) => `<li><span class="num ${gradeClass(caseSummary(c.id).mean)}">${fmtGrade(caseSummary(c.id).mean)}</span> &nbsp;<a href="#exam/${c.id}">${esc(c.title)}</a></li>`).join('')}</ul>` : '<p class="muted">Noch keine Fallprüfung.</p>'; })()}</div>
       </div>
-      ${flagged.length ? `<hr class="sep"><h2>Gemeldete Items</h2><ul class="clean">${flagged.map((it) => `<li>${esc(it.q)} <span class="muted">→ ${esc(it.a)}</span> <button class="btn small ghost" data-unflag="${it.id}">OK</button></li>`).join('')}</ul>` : ''}
+      ${flagged.length ? `<hr class="sep"><h3>Gemeldete Items</h3><ul class="clean">${flagged.map((it) => `<li>${esc(it.q)} <span class="muted">→ ${esc(it.a)}</span> <button class="btn small ghost" data-unflag="${it.id}">OK</button></li>`).join('')}</ul>` : ''}
       <hr class="sep">
-      <div class="row"><button class="btn" id="btn-export">EXPORT JSON</button><button class="btn" id="btn-import">IMPORT JSON</button><input type="file" id="import-file" accept=".json" hidden><span class="meta">${serverOk ? 'GESPEICHERT IN userdata/ (SERVER)' : 'GESPEICHERT IM BROWSER (localStorage) · server.py starten für Dateien auf dem Mac'}</span></div>`;
+      <div class="row"><button class="btn ghost" id="btn-export">EXPORT</button><button class="btn ghost" id="btn-import">IMPORT</button><input type="file" id="import-file" accept=".json" hidden><span class="meta">${serverOk ? 'USERDATA/ AUF DIESEM RECHNER' : 'BROWSER-SPEICHER · server.py starten für Dateien auf dem Mac'}</span></div>`;
     view.onclick = (e) => { const b = e.target.closest('[data-unflag]'); if (b) { const s = stats(b.dataset.unflag); s.flag = false; state.items[b.dataset.unflag] = s; Store.saveState(); b.closest('li').remove(); } };
     $('#btn-export').onclick = async () => {
       const materials = []; for (const m of materialsIndex) { const full = await Store.getMaterial(m.id); if (full) materials.push(full); }
@@ -1033,7 +1116,7 @@
       const file = e.target.files[0]; if (!file) return;
       try {
         const data = JSON.parse(await file.text());
-        if (data.state) { state = { ...state, ...data.state, settings: { ...state.settings, ...data.state.settings, apiKey: state.settings.apiKey || data.state.settings?.apiKey || '' } }; }
+        if (data.state) state = { ...state, ...data.state, settings: { ...state.settings, ...data.state.settings, apiKey: state.settings.apiKey || data.state.settings?.apiKey || '' } };
         if (Array.isArray(data.customBank)) { const known = new Set(customBank.map((it) => it.id)); for (const it of data.customBank) if (!known.has(it.id)) customBank.push(it); }
         for (const m of data.materials || []) await Store.putMaterial(m);
         await Store.flush(); await Store.saveBank(); toast('Import fertig'); navigate();
@@ -1046,53 +1129,59 @@
     const s = state.settings;
     const opt = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('');
     view.innerHTML = `
-      <div class="hero" style="padding-bottom:20px"><span class="kicker">EINSTELLUNGEN</span><h1>Setup</h1><p>Der Schlüssel bleibt auf diesem Rechner (${serverOk ? 'drill/userdata/state.json' : 'Browser-Speicher'}). Aufrufe gehen direkt an api.openai.com.</p></div>
+      ${hero('EINSTELLUNGEN', 'Setup')}
       <div class="grid2">
         <div>
-          <div class="field"><span class="label">OpenAI API-Schlüssel</span><input type="password" id="s-key" value="${esc(s.apiKey)}" placeholder="sk-…"><span class="hint">platform.openai.com → API keys. Nichts davon landet im Repo.</span></div>
-          <div class="field"><span class="label">Modell (Prüfer, Korrektur, Items)</span><input type="text" id="s-model" value="${esc(s.model)}" list="models"><datalist id="models"></datalist><span class="hint">Empfohlen: gpt-5.1 (oder gpt-5, gpt-4.1). <button class="btn small ghost" id="s-load-models">VERFÜGBARE MODELLE LADEN</button></span></div>
-          <div class="field"><span class="label">Denkaufwand (nur gpt-5 / o-Modelle)</span><select id="s-reasoning">${opt([['none', 'none (schnellste, nur gpt-5.1+)'], ['minimal', 'minimal'], ['low', 'low (empfohlen)'], ['medium', 'medium'], ['default', 'Standard des Modells']], s.reasoning)}</select></div>
-          <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"><span class="hint">gpt-4o-transcribe, gpt-4o-mini-transcribe oder whisper-1</span></div>
+          <div class="field"><span class="label">OpenAI API-Schlüssel</span><input type="password" id="s-key" value="${esc(s.apiKey)}" placeholder="sk-…"><span class="hint">Bleibt auf diesem Rechner (${serverOk ? 'drill/userdata/state.json' : 'Browser-Speicher'}).</span></div>
+          <div class="field"><span class="label">Modell</span><input type="text" id="s-model" value="${esc(s.model)}" list="models"><datalist id="models"></datalist><span class="hint">"auto" wählt das stärkste verfügbare Modell deines Schlüssels (gpt-6 › gpt-5.x › gpt-4.1)${s.resolvedModel ? ` · aktuell ${esc(s.resolvedModel)}` : ''}.</span></div>
+          <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['schnell', 'schnell'], ['ausgewogen', 'ausgewogen · Fall und Feedback gründlicher'], ['gründlich', 'gründlich · langsamer, teurer']], s.effort)}</select></div>
+          <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"></div>
           <div class="field"><span class="label">Prüfer-Stimme</span><div class="row"><input type="text" id="s-tts" value="${esc(s.ttsModel)}" style="max-width:220px"><select id="s-voice" style="max-width:140px">${opt([['onyx', 'onyx'], ['alloy', 'alloy'], ['ash', 'ash'], ['echo', 'echo'], ['fable', 'fable'], ['nova', 'nova'], ['sage', 'sage'], ['shimmer', 'shimmer']], s.ttsVoice)}</select></div>
-            <label class="check"><input type="checkbox" id="s-voice-on" ${s.examinerVoice ? 'checked' : ''}> Prüfer liest seine Fragen vor (Prüfung & Frei)</label></div>
+            <label class="check"><input type="checkbox" id="s-voice-on" ${s.examinerVoice ? 'checked' : ''}> Prüfer liest seine Fragen vor</label></div>
         </div>
         <div>
-          <div class="field"><span class="label">Prüfungssprache</span><select id="s-lang">${opt([['de', 'Deutsch'], ['en', 'English']], s.lang)}</select></div>
+          <div class="field"><span class="label">Sprache</span><select id="s-lang">${opt([['de', 'Deutsch'], ['en', 'English']], s.lang)}</select></div>
           <div class="field"><span class="label">Strenge</span><select id="s-strict">${opt([['mild', 'mild'], ['standard', 'standard'], ['hart', 'hart']], s.strictness)}</select></div>
-          <div class="field"><span class="label">Nachfragen pro Station (Prüfung)</span><select id="s-followups">${opt([['0', '0 · nur die 5 Eröffnungsfragen'], ['1', '1 · 10 Fragen pro Fall'], ['2', '2 · 15 Fragen pro Fall'], ['3', '3 · 20 Fragen pro Fall']], String(s.followups))}</select></div>
-          <div class="field"><span class="label">Tagesziel (Fragen + 10 × Fälle)</span><input type="number" id="s-goal" value="${s.dailyGoal}" min="5" max="500"></div>
-          <div class="field"><span class="label">Zusätzliche Anweisung an den Prüfer</span><textarea id="s-custom" placeholder="z. B. 'Frag besonders nach Zugängen und Implantaten.' oder 'Benutze Schweizer Begriffe.'">${esc(s.custom)}</textarea></div>
+          <div class="field"><span class="label">Nachfragen pro Station</span><select id="s-followups">${opt([['0', '0 · nur Eröffnungsfragen'], ['1', '1 · 10 Fragen pro Fall'], ['2', '2 · 15 Fragen'], ['3', '3 · 20 Fragen']], String(s.followups))}</select></div>
+          <div class="field"><span class="label">Bilder</span>
+            <label class="check"><input type="checkbox" id="s-images" ${s.images ? 'checked' : ''}> Bilder aus den Präsentationen in Prüfung und Abfrage</label>
+            <label class="check"><input type="checkbox" id="s-web" ${s.webImages ? 'checked' : ''}> Wikimedia Commons, wenn kein eigenes Bild passt</label></div>
+          <div class="field"><span class="label">Tagesziel</span><input type="number" id="s-goal" value="${s.dailyGoal}" min="5" max="500" style="max-width:120px"></div>
+          <div class="field"><span class="label">Zusätzliche Anweisung an den Prüfer</span><textarea id="s-custom" placeholder="z. B. Frag besonders nach Zugängen und Implantaten.">${esc(s.custom)}</textarea></div>
         </div>
       </div>
       <div class="row"><button class="btn primary" id="s-save">SPEICHERN</button><button class="btn" id="s-test">VERBINDUNG TESTEN</button><span class="meta" id="s-msg"></span></div>`;
     const read = () => {
-      s.apiKey = $('#s-key').value.trim(); s.model = $('#s-model').value.trim() || 'gpt-5.1'; s.reasoning = $('#s-reasoning').value; s.transcribeModel = $('#s-stt').value.trim() || 'gpt-4o-transcribe';
+      s.apiKey = $('#s-key').value.trim(); s.model = $('#s-model').value.trim() || 'auto'; s.effort = $('#s-effort').value; s.transcribeModel = $('#s-stt').value.trim() || 'gpt-4o-transcribe';
       s.ttsModel = $('#s-tts').value.trim() || 'gpt-4o-mini-tts'; s.ttsVoice = $('#s-voice').value; s.examinerVoice = $('#s-voice-on').checked; s.lang = $('#s-lang').value; s.strictness = $('#s-strict').value;
-      s.followups = Number($('#s-followups').value); s.dailyGoal = Number($('#s-goal').value) || 30; s.custom = $('#s-custom').value.trim();
+      s.followups = Number($('#s-followups').value); s.dailyGoal = Number($('#s-goal').value) || 30; s.custom = $('#s-custom').value.trim(); s.images = $('#s-images').checked; s.webImages = $('#s-web').checked;
     };
-    $('#s-save').onclick = async () => { read(); await Store.flush(); toast('Gespeichert'); footer(); };
-    $('#s-load-models').onclick = async (e) => {
-      e.preventDefault(); read(); if (!s.apiKey) return toast('Zuerst Schlüssel eintragen', true);
-      try { const res = await openaiFetch('/models', {}); const data = await res.json(); const ids = data.data.map((m) => m.id).filter((id) => /^(gpt|o[1-9])/.test(id)).sort(); $('#models').innerHTML = ids.map((id) => `<option value="${id}">`).join(''); $('#s-msg').textContent = `${ids.length} MODELLE GELADEN · TIPPE IM FELD`; }
-      catch (error) { toast(error.message, true); }
+    $('#s-save').onclick = async () => {
+      read();
+      if (s.apiKey) { try { const ids = await resolveModel(); $('#models').innerHTML = ids.filter((id) => /^(gpt|o[1-9])/.test(id)).sort().map((id) => `<option value="${id}">`).join(''); } catch (error) { toast(error.message, true); } }
+      await Store.flush(); toast(`Gespeichert · ${activeModel()}`); footer();
     };
     $('#s-test').onclick = async () => {
       read(); await Store.flush(); $('#s-msg').innerHTML = '<span class="spinner"></span>';
-      try { const out = await chatJSON({ system: 'Antworte mit JSON.', messages: [{ role: 'user', content: 'Gib {"ok": true, "modell": "<dein Modellname>"} zurück.' }], schema: { type: 'object', additionalProperties: false, required: ['ok', 'modell'], properties: { ok: { type: 'boolean' }, modell: { type: 'string' } } }, name: 'ping' }); $('#s-msg').textContent = `OK · ${out.modell || s.model}`; footer(); }
-      catch (error) { $('#s-msg').textContent = ''; toast(error.message, true); }
+      try {
+        if (s.model === 'auto' && !s.resolvedModel) await resolveModel();
+        const out = await chatJSON({ system: 'Antworte mit JSON.', messages: [{ role: 'user', content: 'Gib {"ok": true, "modell": "<dein Modellname>"} zurück.' }], schema: { type: 'object', additionalProperties: false, required: ['ok', 'modell'], properties: { ok: { type: 'boolean' }, modell: { type: 'string' } } }, name: 'ping' });
+        $('#s-msg').textContent = `OK · ${activeModel()}${out.modell && out.modell !== activeModel() ? ` (${out.modell})` : ''}`; await Store.flush(); footer();
+      } catch (error) { $('#s-msg').textContent = ''; toast(error.message, true); }
     };
   }
 
   // ------------------------------------------------------------------ boot
   function footer() {
     $('#storage-note').textContent = serverOk ? 'USERDATA/ AUF DIESEM RECHNER' : 'BROWSER-SPEICHER · server.py starten für Dateien';
-    $('#model-note').textContent = state.settings.apiKey ? `${state.settings.model.toUpperCase()} · ${state.settings.lang.toUpperCase()} · ${state.settings.strictness.toUpperCase()}` : 'KEIN API-SCHLÜSSEL · ⚙';
-    $('#countdown').textContent = `PRÜFUNG 21 NOV 2026 · T−${daysLeft()}`;
+    $('#model-note').textContent = state.settings.apiKey ? `${activeModel().toUpperCase()} · ${state.settings.strictness.toUpperCase()}` : 'KEIN API-SCHLÜSSEL · ⚙';
+    $('#countdown').textContent = `21 NOV 2026 · T−${daysLeft()}`;
   }
   const VIEWS = { exam: renderExam, quiz: renderQuiz, lazy: renderLazy, free: renderFree, material: renderMaterial, status: renderStatus, settings: renderSettings };
   (async () => {
     buildSeed();
     await Store.init();
+    imageBank = imageBank.concat(materialImageItems());
     footer();
     if (!state.settings.apiKey && !location.hash) location.hash = '#settings';
     navigate();
