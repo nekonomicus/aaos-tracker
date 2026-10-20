@@ -1386,6 +1386,29 @@
     container.querySelector('#f-count').onchange = (e) => { f.count = Number(e.target.value); state.settings.quizCount = f.count; update(); };
     return f;
   }
+  // every classification and every decision algorithm from every presentation, once per deck (new decks only on a rerun)
+  async function harvestDecks(report = () => {}) {
+    if (!requireKey()) return 0;
+    const done = state.harvested || (state.harvested = {});
+    const list = decks().filter((d) => !done[d.name]);
+    if (!list.length) { report('Alle Präsentationen sind schon geerntet.'); return 0; }
+    let total = 0;
+    for (const [i, d] of list.entries()) {
+      report(`${d.name} · ${i + 1}/${list.length} … (${total} Items bisher)`);
+      try {
+        const text = await deckText(d);
+        if (text) {
+          const out = await chatJSON({ system: P.extractSystem(), messages: [{ role: 'user', content: P.harvestPrompt(d.name, d.title, text.slice(0, 24000)) }], schema: P.ITEMS_SCHEMA, name: 'items', heavy: true });
+          total += await addItems((out.items || []).filter((it) => it.typ === 'klassifikation' || it.typ === 'algorithmus'), `ernte ${d.name}`, d.caseIds);
+        }
+        done[d.name] = Date.now(); Store.saveState();
+      } catch (error) { report(`${d.name}: ${error.message}`); await sleep(1500); }
+    }
+    clearTimeout(Store._timer); await Store.flush();
+    report(`Ernte fertig · ${total} neue Items aus ${list.length} Präsentationen`);
+    return total;
+  }
+  function presetClassAlgo(f, key, container, opts) { f.types = ['klassifikation', 'algorithmus']; f.only = 'all'; Store.saveState(); filterBar(container, key, opts); }
   async function generateMore(f, n = 15) {
     if (!requireKey()) return 0;
     const region = f.regions[0] || P.REGIONS[Math.floor(Math.random() * P.REGIONS.length)];
@@ -1412,8 +1435,15 @@
     $('#btn-discard').onclick = () => { clearSession(key); navigate(); };
   }
   function renderQuiz() {
-    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}${resumeBar('quiz')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button></div><div id="stage" style="margin-top:28px"></div>`;
+    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}${resumeBar('quiz')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn" id="btn-preset" title="Filter auf Klassifikationen und Algorithmen">KLASSIFIKATIONEN & ALGORITHMEN</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button><button class="btn ghost" id="btn-harvest" title="Geht einmal durch jede Präsentation und holt jede Klassifikation und jeden Algorithmus als Item">AUS ALLEN PRÄSENTATIONEN ERNTEN</button><span class="meta" id="harvest-msg"></span></div><div id="stage" style="margin-top:28px"></div>`;
     const f = filterBar($('#filters'), 'quiz', {});
+    $('#btn-preset').onclick = () => { presetClassAlgo(f, 'quiz', $('#filters'), {}); toast('Nur Klassifikationen & Algorithmen'); };
+    $('#btn-harvest').onclick = async () => {
+      const b = $('#btn-harvest'); b.disabled = true; const msg = $('#harvest-msg');
+      try { const n = await harvestDecks((t) => { if (msg) msg.textContent = t; }); toast(`${n} neue Items`); if ($('#f-count-label')) $('#f-count-label').textContent = `${filterItems(f).length} ITEMS`; }
+      catch (error) { toast(error.message, true); }
+      b.disabled = false;
+    };
     wireResume('quiz', (sess) => runQuiz(sess, $('#stage')));
     $('#btn-gen').onclick = async () => {
       const b = $('#btn-gen'); b.disabled = true; b.innerHTML = '<span class="spinner"></span>';
@@ -1523,8 +1553,9 @@
 
   // ------------------------------------------------------------------ LAZY
   function renderLazy() {
-    view.innerHTML = `${hero('LAZY · <span class="kbd">Space</span> ZEIGT · <span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> BEWERTEN', 'Lazy')}${resumeBar('lazy')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn ghost ${state.settings.readAloud ? 'on' : ''}" id="btn-read">VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}</button></div><div id="stage" style="margin-top:28px"></div>`;
+    view.innerHTML = `${hero('LAZY · <span class="kbd">Space</span> ZEIGT · <span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> BEWERTEN', 'Lazy')}${resumeBar('lazy')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn" id="btn-preset" title="Filter auf Klassifikationen und Algorithmen">KLASSIFIKATIONEN & ALGORITHMEN</button><button class="btn ghost ${state.settings.readAloud ? 'on' : ''}" id="btn-read">VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}</button></div><div id="stage" style="margin-top:28px"></div>`;
     const f = filterBar($('#filters'), 'lazy', { lazy: true });
+    $('#btn-preset').onclick = () => { presetClassAlgo(f, 'lazy', $('#filters'), { lazy: true }); toast('Nur Klassifikationen & Algorithmen'); };
     wireResume('lazy', (sess) => runLazy(sess, $('#stage')));
     $('#btn-read').onclick = (e) => { state.settings.readAloud = !state.settings.readAloud; Store.saveState(); e.target.classList.toggle('on'); e.target.textContent = `VORLESEN ${state.settings.readAloud ? 'AN' : 'AUS'}`; };
     $('#btn-start').onclick = () => {
@@ -1599,7 +1630,8 @@
       <div class="row" style="margin-bottom:10px"><select id="free-region" style="max-width:240px">${regionOptions}</select><select id="free-case" style="max-width:400px">${caseOptions}</select><span class="pill clickable" id="free-weak" title="Der Prüfer fragt deine schwächsten Themen ab, der Reihe nach">SCHWÄCHEN DRILLEN</span></div>
       <div class="row" style="margin-bottom:14px"><button class="btn primary big" id="free-start">START</button><button class="btn ghost small" id="free-reset" title="Neues Gespräch, gleicher Fokus">NEU</button><span class="meta" id="free-hint"></span></div>
       <div class="quick" id="quick">
-        <span class="pill clickable" data-q="Frag mich 10 Klassifikationen aus dieser Region ab, eine nach der anderen.">10 KLASSIFIKATIONEN</span>
+        <span class="pill clickable" data-q="Frag mich 10 Klassifikationen aus dieser Region ab, eine nach der anderen: ich nenne alle Typen mit Konsequenz, du korrigierst.">10 KLASSIFIKATIONEN</span>
+        <span class="pill clickable" data-q="Frag mich die Therapie- und Entscheidungsalgorithmen dieser Region ab, einen pro Zug: ich sage die Schritte mit Grenzwerten, du korrigierst.">ALGORITHMEN</span>
         <span class="pill clickable" data-q="Frag mich 10 Begriffe ab: 'Was ist ein/eine ...?' – eine Frage pro Zug.">10 BEGRIFFE</span>
         <span class="pill clickable" data-q="Simuliere die Station 'Therapeutische Optionen, Indikation, Risiken, Aufklärung' zu diesem Fall. Stelle die Eröffnungsfrage.">STATION THERAPIE</span>
         <span class="pill clickable" data-q="Erkläre mir die wichtigsten AO-Grundprinzipien zu diesem Thema (absolute vs. relative Stabilität, Implantatwahl), dann prüfe mich.">AO-PRINZIPIEN</span>

@@ -16,7 +16,7 @@
     'Infekt, Tumor & Allgemein',
   ];
 
-  const TYPES = ['klassifikation', 'terminologie', 'konzept', 'zahl', 'technik', 'anatomie'];
+  const TYPES = ['klassifikation', 'algorithmus', 'terminologie', 'konzept', 'zahl', 'technik', 'anatomie'];
   const FILTER_TYPES = TYPES.concat('bild');
 
   const CASE_REGION_TO_DRILL = {
@@ -287,7 +287,7 @@ ${transcript}${groundingBlock(grounding)}`;
   // ------------------------------------------------------------------ QUIZ
   function gradeSystem(settings) {
     return `Du bist Prüfungsexperte an der Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics) und korrigierst eine mündliche Kurzantwort auf eine Abfrage-Frage.
-Bewertung: 2 = alle wesentlichen Elemente der Musterantwort korrekt genannt (bei Klassifikationen: alle Typen in der richtigen Reihenfolge; bei Zahlen: der Wert mit Einheit), korrekte Terminologie, keine falschen Aussagen. 1 = Kern richtig, aber mindestens ein wesentliches Element fehlt oder ist unscharf. 0 = Hauptaussage falsch oder fehlend, oder eine gefährliche Falschaussage.
+Bewertung: 2 = alle wesentlichen Elemente der Musterantwort korrekt genannt (bei Klassifikationen: alle Typen in der richtigen Reihenfolge, je mit Konsequenz; bei Algorithmen: alle Schritte in der richtigen Reihenfolge mit den tragenden Grenzwerten; bei Zahlen: der Wert mit Einheit), korrekte Terminologie, keine falschen Aussagen. 1 = Kern richtig, aber mindestens ein wesentliches Element fehlt oder ist unscharf. 0 = Hauptaussage falsch oder fehlend, oder eine gefährliche Falschaussage.
 ${STRICTNESS[settings.strictness] || STRICTNESS.hart}
 Die Antwort kann als Spracherkennung vorliegen: Tippfehler, Dialekt und Wortformen ignorieren, nur Inhalt zählt. Fachlich korrekte Synonyme und zusätzliche richtige Angaben akzeptieren.
 Massstab ist der Kern der Musterantwort: Entscheidung, Klassifikation mit Konsequenz, tragende Grenzwerte, Standardvorgehen. Zusätzliche Details der Musterantwort (Prozentzahlen, Raritäten, Alternativklassifikationen) sind für eine 2 kein Muss.
@@ -335,7 +335,8 @@ ${langLine(settings)}`;
 - Nur Dinge, nach denen ein Prüfer an der Facharztprüfung bohrt: Klassifikationen (vollständig mit allen Typen und deren therapeutischer Konsequenz), Terminologie ("Was ist ein ...?"), Grenzwerte und Zahlen (Winkel, mm, Prozent, Zeitfenster), AO-Grundprinzipien, Zugänge und Technikschritte, Anatomie mit klinischer Relevanz, Indikationskriterien, Komplikationen mit Häufigkeit.
 - Keine Trivia, keine Studien-Namen ohne Konsequenz, keine Fragen, deren Antwort "kommt drauf an" ist. Erstprinzipien vor Detail: Standardvorgehen, Klassifikation mit Konsequenz, tragende Grenzwerte; keine Prozentlisten.
 - "frage": so formuliert, wie ein Prüfer sie mündlich stellt, kurz, eindeutig, eine Sache pro Frage.
-- "antwort": Musterantwort in Telegrammstil, max. 60 Wörter, bei Klassifikationen alle Typen in Reihenfolge, bei Zahlen die Zahl mit Einheit.
+- "antwort": Musterantwort in Telegrammstil, max. 60 Wörter (Klassifikationen und Algorithmen bis 90), bei Klassifikationen alle Typen in Reihenfolge je mit Konsequenz, bei Algorithmen nummerierte Schritte mit den tragenden Grenzwerten, bei Zahlen die Zahl mit Einheit.
+- "typ" "klassifikation": eine benannte Klassifikation mit allen Typen / Graden; "algorithmus": ein Therapie- oder Entscheidungsalgorithmus (z. B. Schenkelhalsfraktur nach Alter und Dislokation, offene Fraktur nach Gustilo, Kompartmentsyndrom).
 - "typ" ∈ ${JSON.stringify(TYPES)}; "region" ∈ ${JSON.stringify(REGIONS)}; "thema": 1–4 Wörter (z. B. "Schenkelhalsfraktur").
 - Deutsch; Eigennamen und englische Standardbegriffe unverändert.
 - Keine Duplikate, keine Umformulierungen derselben Frage.`;
@@ -354,6 +355,14 @@ ${chunkText}
 
   function generateSystem() {
     return `Du erstellst neue Abfrage-Items für die mündliche Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics).\n${ITEMS_RULES}`;
+  }
+
+  // every classification and every decision algorithm of one presentation, nothing left out
+  function harvestPrompt(deckName, caseTitle, text) {
+    return `PRÄSENTATION «${deckName}»${caseTitle ? ` (${caseTitle})` : ''}, vollständig in Folienreihenfolge. Extrahiere daraus ALLE Klassifikationen und ALLE Therapie- / Entscheidungsalgorithmen als Abfrage-Items, nichts auslassen, nichts erfinden: eine Klassifikation = ein Item ("typ": "klassifikation"; Antwort: Name, alle Typen / Grade in Reihenfolge, je mit Konsequenz); ein Algorithmus = ein Item ("typ": "algorithmus"; Antwort: nummerierte Schritte mit den Grenzwerten, die die Entscheidung tragen). Fehlt in der Präsentation ein Typ oder Grenzwert, der zur Vollständigkeit nötig ist, ergänze ihn aus gesichertem Standardwissen und markiere ihn mit "(Ergänzung)". Keine anderen Item-Typen; leer, wenn die Präsentation keine enthält.
+<<<
+${text}
+>>>`;
   }
 
   function generatePrompt(region, topic, count, existingQuestions, grounding) {
@@ -508,7 +517,7 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
     REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,
-    extractSystem, extractPrompt, generateSystem, generatePrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
+    extractSystem, extractPrompt, generateSystem, generatePrompt, harvestPrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
     commonsQueryPrompt, COMMONS_SCHEMA, researchPrompt, freeSystem, discussSystem, caseTermsPrompt, TERMS_SCHEMA, factCheckPrompt, profilePrompt, PROFILE_SCHEMA,
   };
 })();

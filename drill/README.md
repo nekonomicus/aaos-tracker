@@ -65,8 +65,13 @@ variant. Cases are kept realistic and short: 3–5 sentences of papers like a re
 AO principles and technique. Filter by region, type, due/new/weak, keyword. The examiner
 grades 0/1/2 in one sentence and shows the model answer. Wrong items come back in the same
 session and sooner in later sessions (Leitner boxes: 0, 1, 3, 7, 14, 30 days).
-"15 NEUE FRAGEN GENERIEREN" creates new items for the selected region from the
-presentation corpus.
+"15 NEUE FRAGEN" creates new items for the selected region from the presentation corpus.
+**KLASSIFIKATIONEN & ALGORITHMEN** sets the filter to exactly those two types (also in LAZY);
+**AUS ALLEN PRÄSENTATIONEN ERNTEN** goes through every presentation once (FMH decks and your
+own PPTX / PDF) and extracts every classification (all types with their consequence) and every
+treatment or decision algorithm (numbered steps with the thresholds) as items of type
+`klassifikation` / `algorithmus`; a rerun only processes new decks. The grader demands all
+types in order, or all steps in order with their thresholds, for a 2.
 
 **LAZY** — same items, no typing, no API cost: read (or have it read aloud with the
 browser's own voice), Space reveals, 1/2/3 rates. After the reveal a NACHFRAGEN box opens under
