@@ -75,8 +75,11 @@ types in order, or all steps in order with their thresholds, for a 2.
 Every item (ABFRAGE and LAZY) carries its images: before you answer, radiographs from your decks
 that belong to it and your own saved images; matching schema slides stay hidden until the
 verdict or reveal, or until you press FOLIEN ZEIGEN. The BILDER box is there before and after
-answering: BILD SUCHEN asks the examiner, on demand only, for pages with the figure (cached per
-item); the pad takes a dropped file, a pasted screenshot (⌘V), an image URL, or a PDF (the page
+answering: BILD SUCHEN asks the examiner, on demand only, for pages with the figure, ranked by
+authority: the describing author's original publication first (Letournel & Judet, Garden,
+Schatzker, Neer …), then the classification's own authority (AO Foundation / AO Surgery Reference
+for AO, the society or guideline for an algorithm), reference sites last; each link is labelled
+with author, year and source (cached per item); the pad takes a dropped file, a pasted screenshot (⌘V), an image URL, or a PDF (the page
 in the PDF-SEITE field is rendered to an image) and stores it for this item in `userdata/files/`.
 The research pad in PRÜFUNG takes PDFs the same way. After the verdict a one-line Merkhilfe is saved with the item.
 Matching is strict (an eponym or the item's own deck carries it), so a wrong slide is rarer than

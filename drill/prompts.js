@@ -440,10 +440,12 @@ ${text}
   };
 
   function researchPrompt(caseItem, mode) {
-    const what = mode === 'item'
-      ? `ein Bild zu dieser Klassifikation bzw. diesem Algorithmus zu sehen ist (ein Schema mit allen Typen oder typische Röntgen- / CT-Bilder je Typ)`
-      : `ein typisches, echtes Röntgen-, CT- oder MRI-Bild zu diesem Prüfungsthema zu sehen ist`;
-    return `Suche im Web 3–5 frei zugängliche Seiten, auf denen ${what}: ${caseItem.title} (${caseItem.region}). Bevorzuge konkrete Fallseiten (Radiopaedia-Fälle mit passender Diagnose, AO Surgery Reference, Orthobullets, Wikimedia Commons, Fachartikel mit offenen Abbildungen). ${mode === 'item' ? 'Keine Shops.' : 'Keine Lehrbuch-Schemata, keine Shops.'} Für jede Seite: Titel, URL, und in max. 12 Wörtern, was dort zu sehen ist (Modalität, Ebene, Befund). Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
+    if (mode === 'item') {
+      return `Suche im Web 3–6 frei zugängliche Seiten mit dem Bild zu dieser Klassifikation bzw. diesem Algorithmus (Originalschema oder -abbildung, sonst typische Röntgen- / CT-Bilder je Typ): ${caseItem.title} (${caseItem.region}).
+Rangfolge, strikt: 1. die Originalpublikation des Erstbeschreibers (z. B. Letournel & Judet für die Acetabulumfrakturen, Garden 1961, Schatzker 1979, Neer 1970, Salter & Harris 1963; PubMed / PMC-Volltext, Verlagsseite, JBJS, CORR, Injury, JOT); 2. die autoritative Quelle der Klassifikation selbst (AO Foundation / AO Surgery Reference und die AO/OTA-Kompendium-Seiten für AO-Klassifikationen, die Fachgesellschaft oder Leitlinie für Algorithmen); 3. erst danach Radiopaedia, Orthobullets, Wikimedia Commons, Lehrbuchseiten. Keine Shops, keine Foren.
+Für jede Seite: "title" = Autor, Jahr, Zeitschrift bzw. Herausgeber und Titel; "url"; "why" = in max. 12 Wörtern, ob Original, autoritative Quelle oder Sekundärquelle, und was dort zu sehen ist (Modalität, Schema, Typen). Originale zuerst. Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
+    }
+    return `Suche im Web 3–5 frei zugängliche Seiten, auf denen ein typisches, echtes Röntgen-, CT- oder MRI-Bild zu diesem Prüfungsthema zu sehen ist: ${caseItem.title} (${caseItem.region}). Bevorzuge konkrete Fallseiten (Radiopaedia-Fälle mit passender Diagnose, AO Surgery Reference, Orthobullets, Wikimedia Commons, Fachartikel mit offenen Abbildungen). Keine Lehrbuch-Schemata, keine Shops. Für jede Seite: Titel, URL, und in max. 12 Wörtern, was dort zu sehen ist (Modalität, Ebene, Befund). Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
   }
 
   // ------------------------------------------------------------- RETRIEVAL
