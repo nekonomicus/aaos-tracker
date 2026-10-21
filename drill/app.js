@@ -934,22 +934,24 @@
     return own.concat(picked);
   }
   let padPaste = null;
-  function mountMedia(container, item, reveal) {
+  function mountMedia(container, item, reveal, showAll = false) {
     if (!container || !item || item.type === 'bild') return;
     const imgs = itemImages(item);
+    const shown = reveal || showAll ? imgs : imgs.filter((i) => ['xray', 'ct', 'mri', 'own'].includes(i.kind)); // before the answer: radiographs and own images, no schema unless asked
+    const hidden = imgs.length - shown.length;
     const gallery = (list) => (list.length ? `<div class="media">${list.map((i) => `<figure><img src="${esc(i.src)}" data-zoom alt=""><figcaption>${esc(i.caption)}</figcaption></figure>`).join('')}</div>` : '');
-    if (!reveal) { container.innerHTML = gallery(imgs.filter((i) => ['xray', 'ct', 'mri'].includes(i.kind))); return; } // before the answer: radiographs only, never the schema
     const note = (state.itemNotes || {})[item.id] || '';
-    const auto = item.type === 'klassifikation' || item.type === 'algorithmus';
-    container.innerHTML = `${gallery(imgs)}
-      <div class="row" style="margin-top:10px"><input type="text" id="item-note" placeholder="Merkhilfe zu diesem Item · wird gespeichert" value="${esc(note)}" style="max-width:560px"></div>
-      <details class="plain" id="item-pad" ${imgs.length ? '' : 'open'}><summary>${imgs.length ? 'BILD HINZUFÜGEN' : 'KEIN BILD IN DEINEN PRÄSENTATIONEN · SUCHEN UND ABLEGEN'}</summary>
+    container.innerHTML = `${gallery(shown)}
+      ${reveal ? `<div class="row" style="margin-top:10px"><input type="text" id="item-note" placeholder="Merkhilfe zu diesem Item · wird gespeichert" value="${esc(note)}" style="max-width:560px"></div>` : ''}
+      <details class="plain" id="item-pad" ${reveal && !imgs.length ? 'open' : ''}><summary>BILDER · ${imgs.length ? `${imgs.length} AUS DEINEN PRÄSENTATIONEN` : 'KEINES IN DEINEN PRÄSENTATIONEN'} · SUCHEN / ABLEGEN</summary>
+        <div class="row" style="margin:8px 0">${hidden ? `<button class="btn small" id="item-show">FOLIEN ZEIGEN (${hidden})</button>` : ''}<button class="btn small ghost" id="item-search">BILD SUCHEN</button><span class="meta">Websuche nach Seiten mit dem Bild · auf Wunsch</span></div>
         <div id="item-links" class="schema" style="margin:8px 0"></div>
         <div class="drop small" id="item-drop">BILD HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" accept="image/*" hidden></div>
-        <div class="row" style="margin-top:6px"><input type="text" id="item-url" placeholder="oder Bild-URL einfügen" style="max-width:380px"><button class="btn small" id="item-url-go">ÜBERNEHMEN</button><button class="btn small ghost" id="item-search">BILD SUCHEN</button><span class="img-credit" id="item-status"></span></div>
+        <div class="row" style="margin-top:6px"><input type="text" id="item-url" placeholder="oder Bild-URL einfügen" style="max-width:380px"><button class="btn small" id="item-url-go">ÜBERNEHMEN</button><span class="img-credit" id="item-status"></span></div>
       </details>`;
     const noteEl = container.querySelector('#item-note');
-    noteEl.onchange = () => { (state.itemNotes = state.itemNotes || {})[item.id] = noteEl.value.trim(); Store.saveState(); };
+    if (noteEl) noteEl.onchange = () => { (state.itemNotes = state.itemNotes || {})[item.id] = noteEl.value.trim(); Store.saveState(); };
+    const showBtn = container.querySelector('#item-show'); if (showBtn) showBtn.onclick = () => mountMedia(container, item, reveal, true);
     const status = (t, bad) => { const el = container.querySelector('#item-status'); if (el) { el.textContent = t; el.classList.toggle('warn', !!bad); } };
     const useBlob = async (blob, credit) => {
       try {
@@ -959,7 +961,7 @@
         if (!src) throw new Error('Speichern nur mit laufendem server.py möglich');
         (state.itemImages = state.itemImages || {})[item.id] = ((state.itemImages[item.id]) || []).concat({ src, credit, t: Date.now() });
         clearTimeout(Store._timer); await Store.flush();
-        mountMedia(container, item, true); toast('Bild gespeichert');
+        mountMedia(container, item, reveal, showAll); container.querySelector('#item-pad').open = true; toast('Bild gespeichert');
       } catch (error) { status(error.message, true); }
     };
     const fromUrl = async (url) => { try { status('Bild wird geladen …'); const blob = await fetch(proxied(url)).then((r) => { if (!r.ok) throw new Error(`Bild nicht ladbar (${r.status})`); return r.blob(); }); await useBlob(blob, new URL(url).hostname.replace(/^www\./, '')); } catch (error) { status(error.message, true); } };
@@ -976,20 +978,19 @@
       const f = Array.from(e.clipboardData?.files || []).find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); useBlob(f, 'eigenes Bild · Screenshot'); }
     };
     document.addEventListener('paste', padPaste);
-    // pages with the figure: automatic for classifications / algorithms without an image, otherwise on BILD SUCHEN; cached per item
+    // pages with the figure: only on BILD SUCHEN, cached per item
     const linksEl = container.querySelector('#item-links');
     const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
     const showLinks = (links) => { linksEl.innerHTML = links.length ? `<span class="label muted">SEITEN MIT PASSENDEM BILD</span><ul class="clean" style="margin-top:6px">${links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a> <span class="faint">${esc(host(l.url))}${l.why ? ` · ${esc(l.why)}` : ''}</span></li>`).join('')}</ul>` : '<span class="muted">Websuche ohne Ergebnis. Radiopaedia, AO Surgery Reference oder Orthobullets manuell durchsuchen.</span>'; };
     const search = async () => {
       const cached = (state.itemLinks || {})[item.id]; if (cached?.links) { showLinks(cached.links); return; }
-      if (!state.settings.apiKey) return;
+      if (!requireKey()) return;
       linksEl.innerHTML = '<span class="spinner"></span> <span class="thinking">PRÜFER SUCHT PASSENDE SEITEN</span>';
       try { const links = await researchLinks({ title: `${item.topic ? `${item.topic}: ` : ''}${item.q}`, region: item.region }, 'item'); (state.itemLinks = state.itemLinks || {})[item.id] = { links, t: Date.now() }; Store.saveState(); if (container.isConnected) showLinks(links); }
       catch (error) { if (container.isConnected) linksEl.innerHTML = `<span class="muted">Websuche nicht verfügbar (${esc(error.message)})</span>`; }
     };
     container.querySelector('#item-search').onclick = search;
     if ((state.itemLinks || {})[item.id]?.links) showLinks(state.itemLinks[item.id].links);
-    else if (!imgs.length && auto) search();
   }
 
   // ------------------------------------------------------------------ router
