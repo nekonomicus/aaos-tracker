@@ -1554,6 +1554,32 @@
       <div class="hm">${sections}</div>
     </details>`;
   }
+  // The candidate names a classification / algorithm (or several, or a topic) and gets it on the board.
+  async function addClassifications(request) {
+    if (!requireKey()) return 0;
+    const existing = allItems().filter((it) => it.type === 'klassifikation' || it.type === 'algorithmus').map((it) => `${it.topic}: ${it.q}`).slice(-250);
+    const grounding = await lookup(request, 9000, { k: 14 });
+    const out = await chatJSON({ system: P.generateSystem(), messages: [{ role: 'user', content: P.addClassPrompt(request, existing, CASES.map((c) => `${c.id} · ${c.title}`), grounding) }], schema: P.ADD_SCHEMA, name: 'hinzufuegen', heavy: true });
+    let n = 0;
+    for (const it of out.items || []) {
+      it.typ = it.typ === 'algorithmus' ? 'algorithmus' : 'klassifikation'; // whatever it answers, it lands on the board
+      n += await addItems([it], 'manuell', caseById(it.fall) ? [it.fall] : []);
+    }
+    return n;
+  }
+  function matrixAddForm() {
+    return `<form class="row" id="matrix-add" style="margin-top:10px"><input type="text" id="matrix-add-text" placeholder="Fehlt eine? Klassifikation oder Algorithmus nennen · z. B. «Sanders, Hawkins» oder «Algorithmus Lisfranc»" style="flex:1;min-width:260px;max-width:640px" autocomplete="off"><button class="btn small" type="submit" id="matrix-add-go">HINZUFÜGEN</button><span class="meta" id="matrix-add-msg"></span></form>`;
+  }
+  function wireMatrixAdd(onAdded) {
+    const form = $('#matrix-add'); if (!form) return;
+    form.onsubmit = async (e) => {
+      e.preventDefault(); const input = $('#matrix-add-text'); const text = input.value.trim(); if (!text || !requireKey()) return;
+      const b = $('#matrix-add-go'); const msg = $('#matrix-add-msg'); b.disabled = true; msg.textContent = 'ERSTELLT …';
+      try { const n = await addClassifications(text); msg.textContent = n ? `${n} NEU AUF DEM BOARD` : 'SCHON VORHANDEN'; if (n) { input.value = ''; onAdded(); } }
+      catch (error) { msg.textContent = ''; toast(error.message, true); }
+      b.disabled = false;
+    };
+  }
   function presetClassAlgo(f, key, container, opts) { f.types = ['klassifikation', 'algorithmus']; f.only = 'all'; Store.saveState(); filterBar(container, key, opts); }
   async function generateMore(f, n = 15) {
     if (!requireKey()) return 0;
@@ -1581,8 +1607,9 @@
     $('#btn-discard').onclick = () => { clearSession(key); navigate(); };
   }
   function renderQuiz() {
-    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}${resumeBar('quiz')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn" id="btn-preset" title="Filter auf Klassifikationen und Algorithmen">KLASSIFIKATIONEN & ALGORITHMEN</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button><button class="btn ghost" id="btn-harvest" title="Geht einmal durch jede Präsentation und holt jede Klassifikation und jeden Algorithmus als Item">AUS ALLEN PRÄSENTATIONEN ERNTEN</button><span class="meta" id="harvest-msg"></span></div><div id="matrix-wrap" style="margin-top:22px">${classMatrix()}</div><div id="stage" style="margin-top:28px"></div>`;
+    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}${resumeBar('quiz')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn" id="btn-preset" title="Filter auf Klassifikationen und Algorithmen">KLASSIFIKATIONEN & ALGORITHMEN</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button><button class="btn ghost" id="btn-harvest" title="Geht einmal durch jede Präsentation und holt jede Klassifikation und jeden Algorithmus als Item">AUS ALLEN PRÄSENTATIONEN ERNTEN</button><span class="meta" id="harvest-msg"></span></div><div id="matrix-wrap" style="margin-top:22px"><div id="matrix-board">${classMatrix()}</div>${matrixAddForm()}</div><div id="stage" style="margin-top:28px"></div>`;
     const f = filterBar($('#filters'), 'quiz', {});
+    wireMatrixAdd(() => { $('#matrix-board').innerHTML = classMatrix(); if ($('#f-count-label')) $('#f-count-label').textContent = `${filterItems(f).length} ITEMS`; });
     const hideControls = () => { $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; $('#matrix-wrap').hidden = true; if ($('.resume')) $('.resume').hidden = true; };
     $('#matrix-wrap').onclick = (e) => {
       const t = e.target.closest('.tile'); if (!t || !requireKey()) return;

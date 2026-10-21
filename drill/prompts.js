@@ -287,7 +287,7 @@ ${transcript}${groundingBlock(grounding)}`;
   // ------------------------------------------------------------------ QUIZ
   function gradeSystem(settings) {
     return `Du bist Prüfungsexperte an der Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics) und korrigierst eine mündliche Kurzantwort auf eine Abfrage-Frage.
-Bewertung: 2 = alle wesentlichen Elemente der Musterantwort korrekt genannt (bei Klassifikationen: alle Typen in der richtigen Reihenfolge, je mit Konsequenz; bei Algorithmen: alle Schritte in der richtigen Reihenfolge mit den tragenden Grenzwerten; bei Zahlen: der Wert mit Einheit), korrekte Terminologie, keine falschen Aussagen. 1 = Kern richtig, aber mindestens ein wesentliches Element fehlt oder ist unscharf. 0 = Hauptaussage falsch oder fehlend, oder eine gefährliche Falschaussage.
+Bewertung: 2 = alle wesentlichen Elemente der Musterantwort korrekt genannt (bei Klassifikationen: alle Typen in der richtigen Reihenfolge, je mit Konsequenz oder prognostischer Bedeutung; das Prinzip hinter der Einteilung zählt zum Kern, der Wortlaut nicht; bei Algorithmen: alle Schritte in der richtigen Reihenfolge mit den tragenden Grenzwerten; bei Zahlen: der Wert mit Einheit), korrekte Terminologie, keine falschen Aussagen. 1 = Kern richtig, aber mindestens ein wesentliches Element fehlt oder ist unscharf. 0 = Hauptaussage falsch oder fehlend, oder eine gefährliche Falschaussage.
 ${STRICTNESS[settings.strictness] || STRICTNESS.hart}
 Die Antwort kann als Spracherkennung vorliegen: Tippfehler, Dialekt und Wortformen ignorieren, nur Inhalt zählt. Fachlich korrekte Synonyme und zusätzliche richtige Angaben akzeptieren.
 Massstab ist der Kern der Musterantwort: Entscheidung, Klassifikation mit Konsequenz, tragende Grenzwerte, Standardvorgehen. Zusätzliche Details der Musterantwort (Prozentzahlen, Raritäten, Alternativklassifikationen) sind für eine 2 kein Muss.
@@ -335,7 +335,7 @@ ${langLine(settings)}`;
 - Nur Dinge, nach denen ein Prüfer an der Facharztprüfung bohrt: Klassifikationen (vollständig mit allen Typen und deren therapeutischer Konsequenz), Terminologie ("Was ist ein ...?"), Grenzwerte und Zahlen (Winkel, mm, Prozent, Zeitfenster), AO-Grundprinzipien, Zugänge und Technikschritte, Anatomie mit klinischer Relevanz, Indikationskriterien, Komplikationen mit Häufigkeit.
 - Keine Trivia, keine Studien-Namen ohne Konsequenz, keine Fragen, deren Antwort "kommt drauf an" ist. Erstprinzipien vor Detail: Standardvorgehen, Klassifikation mit Konsequenz, tragende Grenzwerte; keine Prozentlisten.
 - "frage": so formuliert, wie ein Prüfer sie mündlich stellt, kurz, eindeutig, eine Sache pro Frage.
-- "antwort": Musterantwort in Telegrammstil, max. 60 Wörter (Klassifikationen und Algorithmen bis 90), bei Klassifikationen alle Typen in Reihenfolge je mit Konsequenz, bei Algorithmen nummerierte Schritte mit den tragenden Grenzwerten, bei Zahlen die Zahl mit Einheit.
+- "antwort": Musterantwort in Telegrammstil, max. 60 Wörter (Klassifikationen und Algorithmen bis 100), bei Klassifikationen: Name, Grundlage (was wird woran eingeteilt, welche Bildgebung), alle Typen in Reihenfolge, je Typ mit dem, was er bedeutet: die therapeutische Konsequenz, wo die Einteilung die Therapie steuert, sonst die prognostische Aussage (Nekrose-, Arthrose-, Instabilitäts-, Pseudarthroserisiko); am Schluss «Prinzip: …», ein Satz, was die Stufen trennt und warum das zählt (z. B. Garden: zunehmende Dislokation → Gefährdung der Kopfdurchblutung → Kopferhalt vs. Ersatz). Niemals eine Typenliste ohne Bedeutung. Bei Algorithmen nummerierte Schritte mit den tragenden Grenzwerten und je Schritt dem Grund; bei Zahlen die Zahl mit Einheit.
 - "typ" "klassifikation": eine benannte Klassifikation mit allen Typen / Graden; "algorithmus": ein Therapie- oder Entscheidungsalgorithmus (z. B. Schenkelhalsfraktur nach Alter und Dislokation, offene Fraktur nach Gustilo, Kompartmentsyndrom).
 - "typ" ∈ ${JSON.stringify(TYPES)}; "region" ∈ ${JSON.stringify(REGIONS)}; "thema": 1–4 Wörter (z. B. "Schenkelhalsfraktur").
 - Deutsch; Eigennamen und englische Standardbegriffe unverändert.
@@ -359,7 +359,7 @@ ${chunkText}
 
   // every classification and every decision algorithm of one presentation, nothing left out
   function harvestPrompt(deckName, caseTitle, text) {
-    return `PRÄSENTATION «${deckName}»${caseTitle ? ` (${caseTitle})` : ''}, vollständig in Folienreihenfolge. Extrahiere daraus ALLE Klassifikationen und ALLE Therapie- / Entscheidungsalgorithmen als Abfrage-Items, nichts auslassen, nichts erfinden: eine Klassifikation = ein Item ("typ": "klassifikation"; Antwort: Name, alle Typen / Grade in Reihenfolge, je mit Konsequenz); ein Algorithmus = ein Item ("typ": "algorithmus"; Antwort: nummerierte Schritte mit den Grenzwerten, die die Entscheidung tragen). Fehlt in der Präsentation ein Typ oder Grenzwert, der zur Vollständigkeit nötig ist, ergänze ihn aus gesichertem Standardwissen und markiere ihn mit "(Ergänzung)". Keine anderen Item-Typen; leer, wenn die Präsentation keine enthält.
+    return `PRÄSENTATION «${deckName}»${caseTitle ? ` (${caseTitle})` : ''}, vollständig in Folienreihenfolge. Extrahiere daraus ALLE Klassifikationen und ALLE Therapie- / Entscheidungsalgorithmen als Abfrage-Items, nichts auslassen, nichts erfinden: eine Klassifikation = ein Item ("typ": "klassifikation"; Antwort: Name, Grundlage, alle Typen / Grade in Reihenfolge, je mit therapeutischer Konsequenz oder, wo sie nicht therapiesteuernd ist, prognostischer Bedeutung, und ein Satz «Prinzip: …», was die Stufen trennt und warum); ein Algorithmus = ein Item ("typ": "algorithmus"; Antwort: nummerierte Schritte mit den Grenzwerten, die die Entscheidung tragen, je Schritt mit dem Grund). Fehlt in der Präsentation ein Typ oder Grenzwert, der zur Vollständigkeit nötig ist, ergänze ihn aus gesichertem Standardwissen und markiere ihn mit "(Ergänzung)". Keine anderen Item-Typen; leer, wenn die Präsentation keine enthält.
 <<<
 ${text}
 >>>`;
@@ -372,6 +372,18 @@ BEREITS VORHANDENE FRAGEN (nicht wiederholen, auch nicht umformuliert):
 ${existingQuestions.map((q) => `- ${q}`).join('\n')}${groundingBlock(grounding)}`;
   }
 
+  // One or more classifications / algorithms the candidate asks for by name (or by topic) → one item each.
+  function addClassPrompt(request, existing, caseList, grounding) {
+    return `WUNSCH DES KANDIDATEN: «${request}»
+Erstelle genau das Gewünschte als Abfrage-Items: eine Klassifikation = ein Item ("typ": "klassifikation"), ein Therapie- / Entscheidungsalgorithmus = ein Item ("typ": "algorithmus"); keine anderen Typen. Nennt der Kandidat ein Thema statt eines Namens (z. B. «Calcaneus»), nimm die Standardklassifikation(en) und den Therapiealgorithmus dazu, die ein Schweizer Prüfer an der Facharztprüfung erwartet. Nennt er mehrere, je ein Item.
+Antwort: Name, Grundlage (was wird woran eingeteilt, welche Bildgebung), alle Typen / Grade in Reihenfolge, je mit therapeutischer Konsequenz oder, wo die Einteilung nicht therapiesteuernd ist, prognostischer Bedeutung, und am Schluss «Prinzip: …», ein Satz, was die Stufen trennt und warum das zählt; bzw. nummerierte Schritte mit den Grenzwerten, die die Entscheidung tragen, je Schritt mit dem Grund. Nie eine Typenliste ohne Bedeutung: der Kandidat soll verstehen, nicht auswendig lernen. Massstab: Originalbeschreibung des Erstautors, AO Surgery Reference, Schweizer Praxis; kursieren zwei Versionen, die in der Schweiz gebräuchliche.
+"fall": die Fall-ID aus der Liste, zu der das Item gehört (leer, wenn keine passt). "thema": 1–3 Wörter als Kachel-Beschriftung.
+BEREITS VORHANDEN (nicht doppeln, auch nicht umformuliert; fehlt dort nur ein Teil, erstelle trotzdem nichts Neues):
+${existing.map((q) => `- ${q}`).join('\n')}
+FÄLLE:
+${caseList.join('\n')}${groundingBlock(grounding)}`;
+  }
+
   const ITEMS_SCHEMA = {
     type: 'object', additionalProperties: false, required: ['items'],
     properties: {
@@ -381,6 +393,20 @@ ${existingQuestions.map((q) => `- ${q}`).join('\n')}${groundingBlock(grounding)}
           type: 'object', additionalProperties: false, required: ['typ', 'region', 'thema', 'frage', 'antwort'],
           properties: {
             typ: { type: 'string' }, region: { type: 'string' }, thema: { type: 'string' }, frage: { type: 'string' }, antwort: { type: 'string' },
+          },
+        },
+      },
+    },
+  };
+  const ADD_SCHEMA = {
+    type: 'object', additionalProperties: false, required: ['items'],
+    properties: {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false, required: ['typ', 'region', 'thema', 'frage', 'antwort', 'fall'],
+          properties: {
+            typ: { type: 'string' }, region: { type: 'string' }, thema: { type: 'string' }, frage: { type: 'string' }, antwort: { type: 'string' }, fall: { type: 'string' },
           },
         },
       },
@@ -522,7 +548,7 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
     REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,
-    extractSystem, extractPrompt, generateSystem, generatePrompt, harvestPrompt, ITEMS_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
+    extractSystem, extractPrompt, generateSystem, generatePrompt, harvestPrompt, addClassPrompt, ITEMS_SCHEMA, ADD_SCHEMA, tagPrompt, TAG_SCHEMA, ocrPrompt,
     commonsQueryPrompt, COMMONS_SCHEMA, researchPrompt, freeSystem, discussSystem, caseTermsPrompt, TERMS_SCHEMA, factCheckPrompt, profilePrompt, PROFILE_SCHEMA,
   };
 })();

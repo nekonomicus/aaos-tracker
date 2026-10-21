@@ -76,7 +76,11 @@ Below the buttons sits the **progress heatmap**: one tile per classification / a
 grouped into the sections of the FMH oral case matrix (Trauma Schulter/Arm … Allgemein) and
 coloured like a stock heatmap: grey NEU (never asked), red GESEHEN (last answer wrong), olive
 TEILWEISE (1–2 right in a row), green KOMPETENT (3 right in a row, Leitner box 3+). Clicking a
-tile quizzes that one item.
+tile quizzes that one item. The box under the board adds what is missing: type a name
+("Sanders"), several ("Sanders, Hawkins, Vancouver"), an algorithm ("Algorithmus Lisfranc") or
+just a topic ("Calcaneus"), press HINZUFÜGEN, and the examiner writes one item per classification
+or algorithm (all types in order with their consequence, grounded in your decks and the original
+description), files it under its case and section, and the tile appears grey.
 Every item (ABFRAGE and LAZY) carries its images: before you answer, radiographs from your decks
 that belong to it and your own saved images; matching schema slides stay hidden until the
 verdict or reveal, or until you press FOLIEN ZEIGEN. The BILDER box is there before and after
