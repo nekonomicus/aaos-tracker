@@ -10,7 +10,7 @@
   const CASES = window.CASES;
   const CORPUS = window.CORPUS || {};
   const IMAGES = window.IMAGES || [];
-  const BUILD = '2026-10-18 LIVE'; // shown in the footer, so a stale tab or an old checkout is obvious
+  const BUILD = '2026-10-21 HEATMAP'; // shown in the footer, so a stale tab or an old checkout is obvious
   const EXAM_DATE = new Date('2026-11-21T15:00:00+01:00');
   const OPENAI = 'https://api.openai.com/v1';
   const INTERVALS = [0, 1, 3, 7, 14, 30]; // days per Leitner box
@@ -1523,6 +1523,37 @@
     report(`Ernte fertig · ${total} neue Items aus ${list.length} Präsentationen`);
     return total;
   }
+  // Progress heatmap of every classification and algorithm item, laid out like a stock-market
+  // heatmap in the sections of the FMH oral case matrix. Four states from the Leitner box.
+  function competence(id) { const st = stats(id); if (!st.seen) return 'neu'; if (st.box >= 3) return 'kompetent'; if (st.box >= 1) return 'teilweise'; return 'gesehen'; }
+  const TRAUMA_RE = /frakt|luxation|trauma|verletz|ruptur|\bao\b|dislo|offene|polytrauma|kompartment|gustilo|tscherne|weichteil|avulsion|abriss|osteosynthese|\bnagel|platte|fixateur|reposition|instabil|bruch|ffp|fragilit/i;
+  function oralSections() { const out = []; for (const c of CASES) if (!out.includes(c.region)) out.push(c.region); return out; }
+  // The section of the oral case matrix an item belongs to: its case's section when it has one, otherwise the
+  // section that names the item's drill region first, preferring a trauma section for trauma items.
+  function oralSection(it) {
+    const c = caseById((it.caseIds || [])[0]); if (c) return c.region;
+    const trauma = TRAUMA_RE.test(`${it.topic || ''} ${it.q}`);
+    const rank = (r) => P.CASE_REGION_TO_DRILL[r].indexOf(it.region) + (/^Trauma/.test(r) === trauma ? 0 : 10);
+    return oralSections().filter((r) => (P.CASE_REGION_TO_DRILL[r] || []).includes(it.region)).sort((a, b) => rank(a) - rank(b))[0] || 'Allgemein';
+  }
+  function classMatrix() {
+    const items = allItems().filter((it) => it.type === 'klassifikation' || it.type === 'algorithmus');
+    const counts = { kompetent: 0, teilweise: 0, gesehen: 0, neu: 0 };
+    for (const it of items) counts[competence(it.id)] += 1;
+    const short = (it) => (it.topic && it.topic.length <= 22 ? it.topic : (it.topic || it.q).replace(/^(Nennen|Beschreiben|Erklären|Welche|Wie|Was)\s+\S+\s+/i, '').split(/[\s,:(]+/).slice(0, 2).join(' ')).slice(0, 22);
+    const by = new Map(); for (const it of items) { const s = oralSection(it); if (!by.has(s)) by.set(s, []); by.get(s).push(it); }
+    const legend = ['kompetent', 'teilweise', 'gesehen', 'neu'].map((k) => `<span class="hm-key"><i class="sw ${k}"></i>${counts[k]} ${k.toUpperCase()}</span>`).join('');
+    const sections = oralSections().filter((s) => by.has(s)).map((s) => {
+      const list = by.get(s).sort((a, b) => short(a).localeCompare(short(b)));
+      const done = list.filter((it) => competence(it.id) === 'kompetent').length;
+      const tiles = list.map((it) => `<button type="button" class="tile ${competence(it.id)}" data-item="${esc(it.id)}" data-type="${it.type}" title="${esc(it.q)}"><span>${esc(short(it))}</span></button>`).join('');
+      return `<section class="hm-sec" style="flex-basis:${Math.min(960, 150 + list.length * 60)}px"><div class="hm-head"><span>${esc(s)}</span><span class="meta">${done}/${list.length}</span></div><div class="hm-tiles">${tiles}</div></section>`;
+    }).join('');
+    return `<details class="plain" id="matrix" open><summary>KLASSIFIKATIONEN & ALGORITHMEN · ${items.length} ${legend}</summary>
+      <div class="meta" style="margin:6px 0 10px">Sektionen wie die FMH-Fallmatrix · NEU nie abgefragt · GESEHEN zuletzt falsch · TEILWEISE 1–2× richtig in Folge · KOMPETENT 3× richtig in Folge · Klick fragt die Kachel einzeln ab · A = Algorithmus</div>
+      <div class="hm">${sections}</div>
+    </details>`;
+  }
   function presetClassAlgo(f, key, container, opts) { f.types = ['klassifikation', 'algorithmus']; f.only = 'all'; Store.saveState(); filterBar(container, key, opts); }
   async function generateMore(f, n = 15) {
     if (!requireKey()) return 0;
@@ -1546,12 +1577,19 @@
   }
   function wireResume(key, run) {
     const sess = savedSession(key); if (!sess) return;
-    $('#btn-resume').onclick = () => { $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; $('.resume').hidden = true; run(sess); };
+    $('#btn-resume').onclick = () => { $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; $('.resume').hidden = true; if ($('#matrix-wrap')) $('#matrix-wrap').hidden = true; run(sess); };
     $('#btn-discard').onclick = () => { clearSession(key); navigate(); };
   }
   function renderQuiz() {
-    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}${resumeBar('quiz')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn" id="btn-preset" title="Filter auf Klassifikationen und Algorithmen">KLASSIFIKATIONEN & ALGORITHMEN</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button><button class="btn ghost" id="btn-harvest" title="Geht einmal durch jede Präsentation und holt jede Klassifikation und jeden Algorithmus als Item">AUS ALLEN PRÄSENTATIONEN ERNTEN</button><span class="meta" id="harvest-msg"></span></div><div id="stage" style="margin-top:28px"></div>`;
+    view.innerHTML = `${hero('ABFRAGE', 'Abfrage')}${resumeBar('quiz')}<div id="filters"></div><div class="row" style="margin-top:18px"><button class="btn primary" id="btn-start">START</button><button class="btn" id="btn-preset" title="Filter auf Klassifikationen und Algorithmen">KLASSIFIKATIONEN & ALGORITHMEN</button><button class="btn ghost" id="btn-gen">15 NEUE FRAGEN</button><button class="btn ghost" id="btn-harvest" title="Geht einmal durch jede Präsentation und holt jede Klassifikation und jeden Algorithmus als Item">AUS ALLEN PRÄSENTATIONEN ERNTEN</button><span class="meta" id="harvest-msg"></span></div><div id="matrix-wrap" style="margin-top:22px">${classMatrix()}</div><div id="stage" style="margin-top:28px"></div>`;
     const f = filterBar($('#filters'), 'quiz', {});
+    const hideControls = () => { $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; $('#matrix-wrap').hidden = true; if ($('.resume')) $('.resume').hidden = true; };
+    $('#matrix-wrap').onclick = (e) => {
+      const t = e.target.closest('.tile'); if (!t || !requireKey()) return;
+      hideControls();
+      const sess = { ids: [t.dataset.item], i: 0, results: [], requeue: [], startedAt: Date.now(), verdict: null };
+      saveSession('quiz', sess); runQuiz(sess, $('#stage'));
+    };
     $('#btn-preset').onclick = () => { presetClassAlgo(f, 'quiz', $('#filters'), {}); toast('Nur Klassifikationen & Algorithmen'); };
     $('#btn-harvest').onclick = async () => {
       const b = $('#btn-harvest'); b.disabled = true; const msg = $('#harvest-msg');
@@ -1570,7 +1608,7 @@
       if (!requireKey()) return;
       const items = pickSession(filterItems(f), f.count);
       if (!items.length) { toast('Keine Items für diese Auswahl.', true); return; }
-      $('#filters').hidden = true; $('#btn-start').parentElement.hidden = true; if ($('.resume')) $('.resume').hidden = true;
+      hideControls();
       const sess = { ids: items.map((it) => it.id), i: 0, results: [], requeue: [], startedAt: Date.now(), verdict: null };
       saveSession('quiz', sess);
       runQuiz(sess, $('#stage'));

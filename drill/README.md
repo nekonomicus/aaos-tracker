@@ -72,6 +72,11 @@ own PPTX / PDF) and extracts every classification (all types with their conseque
 treatment or decision algorithm (numbered steps with the thresholds) as items of type
 `klassifikation` / `algorithmus`; a rerun only processes new decks. The grader demands all
 types in order, or all steps in order with their thresholds, for a 2.
+Below the buttons sits the **progress heatmap**: one tile per classification / algorithm item,
+grouped into the sections of the FMH oral case matrix (Trauma Schulter/Arm … Allgemein) and
+coloured like a stock heatmap: grey NEU (never asked), red GESEHEN (last answer wrong), olive
+TEILWEISE (1–2 right in a row), green KOMPETENT (3 right in a row, Leitner box 3+). Clicking a
+tile quizzes that one item.
 Every item (ABFRAGE and LAZY) carries its images: before you answer, radiographs from your decks
 that belong to it and your own saved images; matching schema slides stay hidden until the
 verdict or reveal, or until you press FOLIEN ZEIGEN. The BILDER box is there before and after
