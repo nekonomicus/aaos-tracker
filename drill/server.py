@@ -174,7 +174,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({'error': str(error)}, 500)
 
     def fetch_image(self, url):
-        """Download a remote image for the browser (browsers may not fetch cross-origin images themselves)."""
+        """Download a remote image or PDF for the browser (browsers may not fetch cross-origin files themselves)."""
         if not re.match(r'^https?://', url):
             return self.send_json({'error': 'bad url'}, 400)
         try:
@@ -184,13 +184,15 @@ class Handler(SimpleHTTPRequestHandler):
                 data = resp.read(15 * 1024 * 1024 + 1)
             if len(data) > 15 * 1024 * 1024:
                 return self.send_json({'error': 'too large'}, 413)
-            if not ctype.startswith('image/'):
+            if not ctype.startswith('image/') and ctype != 'application/pdf':
                 if data[:3] == b'\xff\xd8\xff':
                     ctype = 'image/jpeg'
                 elif data[:8] == b'\x89PNG\r\n\x1a\n':
                     ctype = 'image/png'
+                elif data[:4] == b'%PDF':
+                    ctype = 'application/pdf'
                 else:
-                    return self.send_json({'error': f'not an image ({ctype})'}, 415)
+                    return self.send_json({'error': f'not an image or PDF ({ctype})'}, 415)
             self.send_response(200)
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(data)))
