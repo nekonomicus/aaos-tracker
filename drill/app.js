@@ -28,7 +28,7 @@
 
   // ------------------------------------------------------------------ state
   const DEFAULT_SETTINGS = {
-    apiKey: '', model: 'auto', resolvedModel: '', effort: 'ausgewogen', transcribeModel: 'gpt-4o-transcribe', ttsModel: 'gpt-4o-mini-tts', ttsVoice: 'onyx',
+    apiKey: '', model: 'auto', resolvedModel: '', effort: 'maximal', settingsV: 0, transcribeModel: 'gpt-4o-transcribe', ttsModel: 'gpt-4o-mini-tts', ttsVoice: 'onyx',
     examinerVoice: false, lang: 'de', strictness: 'hart', followups: 1, custom: '', dailyGoal: 30, readAloud: false, quizCount: 20, images: true, webImages: true, googleKey: '', googleCx: '',
     factCheck: true, githubToken: '', fmhRepo: 'nekonomicus/fmh-oral-files',
     live: true, realtimeModel: 'auto', resolvedRealtimeModel: '', realtimeVoice: 'cedar', eagerness: 'low',
@@ -56,6 +56,8 @@
           materialsIndex = JSON.parse(localStorage.getItem('fmhdrill.materials.index') || '[]');
         } catch { /* fresh start */ }
       }
+      // settings migrations: v2 raised the default to maximal intelligence everywhere (the candidate can lower it under ⚙)
+      if ((state.settings.settingsV || 0) < 2) { state.settings.effort = 'maximal'; state.settings.settingsV = 2; }
     },
     _timer: null,
     saveState() { clearTimeout(this._timer); this._timer = setTimeout(() => this.flush(), 400); },
@@ -139,7 +141,7 @@
   }
   function isReasoningModel(model) { return /^(gpt-[5-9]|o[1-9])/i.test(model || ''); }
   function effortFor(heavy) {
-    const map = { schnell: ['low', 'low'], ausgewogen: ['low', 'medium'], gründlich: ['medium', 'high'] };
+    const map = { schnell: ['low', 'low'], ausgewogen: ['low', 'medium'], gründlich: ['medium', 'high'], maximal: ['high', 'high'] };
     const pair = map[state.settings.effort] || map.ausgewogen;
     return heavy ? pair[1] : pair[0];
   }
@@ -187,27 +189,60 @@
       throw error;
     }
   }
-  async function chatStream({ system, messages, onDelta }) {
-    const model = activeModel();
-    const body = baseBody(model, false, { stream: true, messages: [{ role: 'system', content: system }, ...messages] });
-    let res;
-    try {
-      res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (error) {
+  // What the examiner is and can do, in every text and voice conversation.
+  function runtimeNote(withTools = true) {
+    const model = activeModel(); const eff = isReasoningModel(model) ? effortFor(false) : 'n/a';
+    return `LAUFZEIT: Du bist das OpenAI-Modell «${model}» (Denkaufwand ${eff}).${withTools ? ' Deine Werkzeuge: «nachschlagen» durchsucht die Unterlagen des Kandidaten (Präsentationen, PDFs, Notizen, Items); «websuche» sucht live im Internet (Originalarbeit des Erstautors, AO Surgery Reference, Leitlinien, PubMed) und liefert Quellen-URLs. Nutze sie von dir aus, sobald eine Zahl, ein Grenzwert, eine Klassifikationsangabe oder eine Evidenzfrage nicht sicher in den Auszügen steht, und nenne die Quelle. Fragt der Kandidat nach deinem Modell, deiner Version oder deinen Fähigkeiten (Internet, Unterlagen), sage genau das.' : ''}`;
+  }
+  const chatTools = (handlers) => handlers.map(({ run, ...d }) => ({ type: 'function', function: { name: d.name, description: d.description, parameters: d.parameters } }));
+  async function postChat(body) {
+    try { return await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+    catch (error) {
       if (/reasoning_effort|temperature|Unsupported parameter|Unsupported value|unsupported_value/i.test(error.message) && (body.reasoning_effort || body.temperature !== undefined)) {
         delete body.reasoning_effort; delete body.temperature;
-        res = await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-      } else throw error;
+        return openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      }
+      throw error;
     }
-    const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let full = '';
-    for (;;) {
-      const { value, done } = await reader.read(); if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n'); buffer = lines.pop();
-      for (const line of lines) {
-        const trimmed = line.trim(); if (!trimmed.startsWith('data:')) continue;
-        const payload = trimmed.slice(5).trim(); if (payload === '[DONE]') continue;
-        try { const delta = JSON.parse(payload).choices?.[0]?.delta?.content; if (delta) { full += delta; onDelta(full); } } catch { /* partial line */ }
+  }
+  // Streaming chat with function tools: before it answers, the model may look passages up in the
+  // candidate's sources, search the web, or load a deck. Tool rounds are not kept in the history.
+  async function chatStream({ system, messages, onDelta, tools = null, onTool = null }) {
+    const model = activeModel();
+    const handlers = tools || [LOOKUP_HANDLER, WEB_HANDLER];
+    const convo = [{ role: 'system', content: `${system}\n\n${runtimeNote(handlers.length > 0)}` }, ...messages];
+    let full = '';
+    for (let round = 0; round < 8; round++) {
+      const body = baseBody(model, false, { stream: true, messages: convo, ...(handlers.length ? { tools: chatTools(handlers), tool_choice: 'auto' } : {}) });
+      const res = await postChat(body);
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; full = ''; const calls = new Map();
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n'); buffer = lines.pop();
+        for (const line of lines) {
+          const trimmed = line.trim(); if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim(); if (payload === '[DONE]') continue;
+          try {
+            const delta = JSON.parse(payload).choices?.[0]?.delta || {};
+            if (delta.content) { full += delta.content; onDelta(full); }
+            for (const tc of delta.tool_calls || []) {
+              const cur = calls.get(tc.index) || { id: '', name: '', arguments: '' };
+              if (tc.id) cur.id = tc.id; if (tc.function?.name) cur.name += tc.function.name; if (tc.function?.arguments) cur.arguments += tc.function.arguments;
+              calls.set(tc.index, cur);
+            }
+          } catch { /* partial line */ }
+        }
+      }
+      if (!calls.size) return full;
+      const list = [...calls.values()].filter((c) => c.id && c.name);
+      if (!list.length) return full;
+      convo.push({ role: 'assistant', content: full || null, tool_calls: list.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } })) });
+      for (const c of list) {
+        const tool = handlers.find((h) => h.name === c.name); let args = {}; try { args = JSON.parse(c.arguments || '{}'); } catch { args = {}; }
+        if (onTool) onTool(c.name, args);
+        let out = ''; try { out = tool ? await tool.run(args) : 'Unbekanntes Werkzeug.'; } catch (error) { out = `Fehler: ${error.message}`; }
+        convo.push({ role: 'tool', tool_call_id: c.id, content: String(out || '').slice(0, 24000) });
       }
     }
     return full;
@@ -710,7 +745,7 @@
   const LOOKUP_HANDLER = { ...P.LOOKUP_TOOL, run: async (args) => (await lookup(args.frage || '', 3500, { k: 5 }).catch(() => '')) || 'Keine passenden Passagen in den Unterlagen.' };
   function attachLive(tools, { system, add, onTurn, history, greeting, extraTools = [] }) {
     if (!tools || !window.RealtimeVoice) return null;
-    const handlers = [LOOKUP_HANDLER, ...extraTools];
+    const handlers = [LOOKUP_HANDLER, WEB_HANDLER, ...extraTools];
     const toolDefs = handlers.map(({ run, ...def }) => def);
     const wrap = document.createElement('span'); wrap.className = 'live-wrap';
     wrap.innerHTML = '<button class="btn small live-toggle" type="button" title="Mit dem Prüfer sprechen (OpenAI Realtime)">● LIVE</button><button class="btn small ghost" type="button" hidden>STUMM</button><span class="live-status"></span>';
@@ -763,7 +798,7 @@
       connecting = true; render({});
       try {
         if (state.settings.realtimeModel === 'auto' && !state.settings.resolvedRealtimeModel) await resolveModel().catch(() => {});
-        const instructions = `${await system()}\n\n${P.voiceTutor(state.settings)}`;
+        const instructions = `${await system()}\n\n${P.voiceTutor(state.settings)}\n\n${runtimeNote()}`;
         const eagerness = state.settings.eagerness === 'low' ? 'medium' : state.settings.eagerness; // conversation: a bit quicker than the exam
         const v = new RealtimeVoice({ apiKey: state.settings.apiKey, session: voiceSession({ instructions, tools: toolDefs, createResponse: true, eagerness }), onEvent, onState: render });
         await v.connect(); voice = v;
@@ -776,7 +811,7 @@
     // new briefing for a running call (topic changed): fresh instructions, one spoken acknowledgement
     const rebrief = async (note) => {
       if (!voice) return false;
-      voice.update({ instructions: `${await system()}\n\n${P.voiceTutor(state.settings)}` });
+      voice.update({ instructions: `${await system()}\n\n${P.voiceTutor(state.settings)}\n\n${runtimeNote()}` });
       voice.addText('system', `[SYSTEM] ${note}`); voice.respond();
       return true;
     };
@@ -817,7 +852,7 @@
       const body = add('examiner', ''); body.innerHTML = '<span class="spinner"></span>';
       try {
         const passages = await lookup(`${sourceQuery} ${text}`, 4000, { k: 5 }).catch(() => '');
-        const full = await chatStream({ system: P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab; mit [Quelle: …] zitieren):\n<<<\n${passages}\n>>>` : ''), messages: holder.discussion.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
+        const full = await chatStream({ system: P.discussSystem(state.settings, contextText) + (passages ? `\n\nAUSZÜGE AUS DEN UNTERLAGEN DES KANDIDATEN (Massstab; mit [Quelle: …] zitieren):\n<<<\n${passages}\n>>>` : ''), messages: holder.discussion.filter((m) => m.content), onDelta: (t) => { body.textContent = t; }, onTool: (name) => { body.innerHTML = `<span class="spinner"></span> ${name === 'websuche' ? 'SUCHT IM NETZ' : name === 'nachschlagen' ? 'SCHLÄGT IN DEN UNTERLAGEN NACH' : name === 'praesentation_laden' ? 'LÄDT PRÄSENTATION' : esc(name.toUpperCase())} …`; } });
         body.textContent = full; holder.discussion.push({ role: 'assistant', content: full }); persist();
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
         if (onChange) onChange();
@@ -838,9 +873,9 @@
 
   // web research for a case: pages that show the typical imaging (OpenAI web_search tool)
   // one web-search call through the Responses API; returns the JSON object in the answer plus the citations
-  async function webSearchJSON(input, effort = 'low') {
+  async function responsesSearch(input, effort) {
     const body = { model: activeModel(), tools: [{ type: 'web_search' }], input };
-    if (isReasoningModel(activeModel())) body.reasoning = { effort };
+    if (isReasoningModel(activeModel())) body.reasoning = { effort: effort || effortFor(false) };
     let res;
     try { res = await openaiFetch('/responses', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
     catch (error) {
@@ -849,17 +884,28 @@
     }
     const data = await res.json();
     const text = (data.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).filter((c) => c.type === 'output_text').map((c) => c.text).join('\n') || data.output_text || '';
+    const cites = (data.output || []).flatMap((o) => o.content || []).flatMap((c) => c.annotations || []).filter((a) => a.type === 'url_citation').map((a) => ({ title: a.title || a.url, url: a.url }));
+    return { text, cites };
+  }
+  async function webSearchJSON(input, effort = null) {
+    const { text, cites } = await responsesSearch(input, effort);
     const match = text.match(/\{[\s\S]*\}/);
     let json = null;
     try { json = match ? JSON.parse(match[0]) : null; } catch { json = null; }
-    const cites = (data.output || []).flatMap((o) => o.content || []).flatMap((c) => c.annotations || []).filter((a) => a.type === 'url_citation').map((a) => ({ title: a.title || a.url, url: a.url }));
     return { json, cites, text };
   }
+  // the examiner's own web search (tool «websuche»): a cited short answer; medium reasoning keeps a chat turn under a minute
+  async function webSearchText(query) {
+    const { text, cites } = await responsesSearch(P.webToolPrompt(query), 'medium');
+    const seen = new Set(); const src = cites.filter((c) => c.url && !seen.has(c.url) && seen.add(c.url)).slice(0, 8).map((c) => `- ${c.title}: ${c.url}`).join('\n');
+    return `${text.trim()}${src ? `\n\nQUELLEN:\n${src}` : ''}`.trim() || 'Keine Treffer.';
+  }
+  const WEB_HANDLER = { ...P.WEB_TOOL, run: async (args) => webSearchText(args.frage || '') };
   // real-time fact check of hard claims against peer-reviewed sources; the last instance after the candidate's own sources
   async function factCheck(claims, context) {
     const list = (claims || []).map((c) => String(c).trim()).filter(Boolean).slice(0, 6);
     if (!list.length) return [];
-    const { json, cites } = await webSearchJSON(P.factCheckPrompt(list, context), 'medium');
+    const { json, cites } = await webSearchJSON(P.factCheckPrompt(list, context));
     const befunde = Array.isArray(json?.befunde) ? json.befunde : [];
     return befunde.map((b, i) => ({
       aussage: String(b.aussage || list[i] || ''), status: /korrig/i.test(b.status) ? 'korrigiert' : /best/i.test(b.status) ? 'bestätigt' : 'unklar',
@@ -1905,16 +1951,17 @@
       const b = div.querySelector('.say'); if (b) b.onclick = () => say(body.textContent);
       chat.appendChild(div); return body;
     }
+    const deckTools = [
+      { ...P.DECK_TOOLS[0], run: async (args) => { const d = deckByName(args.name); if (!d) return `Nicht gefunden. Verfügbare Präsentationen:\n${deckList()}`; attachDecks([d]); return (await deckBlock([d])) || 'Kein Text in dieser Präsentation.'; } },
+      { ...P.DECK_TOOLS[1], run: async (args) => showSlide(Number(args.nummer) || 1, args.name) },
+    ];
     const liveFree = attachLive($('.answer-tools'), {
       add,
       system: async () => (await freeContext('', true)).system,
       onTurn: (entry, fresh) => { if (fresh) thread.messages.push(entry); saveThread(); },
       history: () => thread.messages,
       greeting: 'Begrüsse den Kandidaten in einem kurzen Satz, nenne den Fokus und stelle sofort die erste Prüferfrage dazu.',
-      extraTools: [
-        { ...P.DECK_TOOLS[0], run: async (args) => { const d = deckByName(args.name); if (!d) return `Nicht gefunden. Verfügbare Präsentationen:\n${deckList()}`; attachDecks([d]); return (await deckBlock([d])) || 'Kein Text in dieser Präsentation.'; } },
-        { ...P.DECK_TOOLS[1], run: async (args) => showSlide(Number(args.nummer) || 1, args.name) },
-      ],
+      extraTools: deckTools,
     });
     // START: new thread, examiner briefed on the chosen focus and begins (re-briefs a running call, connects otherwise)
     $('#free-start').onclick = async () => {
@@ -1940,7 +1987,7 @@
       const body = add('examiner', ''); body.innerHTML = '<span class="spinner"></span>';
       try {
         const { system } = await freeContext(text);
-        const full = await chatStream({ system, messages: thread.messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; } });
+        const full = await chatStream({ system, messages: thread.messages.filter((m) => m.content), onDelta: (t) => { body.textContent = t; }, tools: [LOOKUP_HANDLER, WEB_HANDLER, ...deckTools], onTool: (name) => { body.innerHTML = `<span class="spinner"></span> ${name === 'websuche' ? 'SUCHT IM NETZ' : name === 'nachschlagen' ? 'SCHLÄGT IN DEN UNTERLAGEN NACH' : name === 'praesentation_laden' ? 'LÄDT PRÄSENTATION' : esc(name.toUpperCase())} …`; } });
         body.textContent = full; thread.messages.push({ role: 'assistant', content: full }); saveThread();
         renderSlideRefs(body, full, threadDecks());
         if (state.settings.examinerVoice) speak(full.slice(0, 600));
@@ -2309,7 +2356,7 @@
         <div>
           <div class="field"><span class="label">OpenAI API-Schlüssel</span><input type="password" id="s-key" value="${esc(s.apiKey)}" placeholder="sk-…"><span class="hint">Bleibt auf diesem Rechner (${serverOk ? 'drill/userdata/state.json' : 'Browser-Speicher'}).</span></div>
           <div class="field"><span class="label">Modell</span><input type="text" id="s-model" value="${esc(s.model)}" list="models"><datalist id="models"></datalist><span class="hint">"auto" wählt das stärkste verfügbare Modell deines Schlüssels (gpt-6 › gpt-5.x › gpt-4.1)${s.resolvedModel ? ` · aktuell ${esc(s.resolvedModel)}` : ''}.</span></div>
-          <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['schnell', 'schnell'], ['ausgewogen', 'ausgewogen · Fall und Feedback gründlicher'], ['gründlich', 'gründlich · langsamer, teurer']], s.effort)}</select></div>
+          <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['maximal', 'maximal · höchster Denkaufwand überall (Standard)'], ['gründlich', 'gründlich · Chat mittel, Fall und Feedback hoch'], ['ausgewogen', 'ausgewogen · schneller'], ['schnell', 'schnell · nur zum Testen']], s.effort)}</select><span class="hint">Gilt für jeden Text-Aufruf: Prüfer-Chat, Fall, Bewertung, Feedback, Items, Suche. Die Live-Stimme läuft auf dem neusten gpt-realtime; der Prüfer hat in jedem Chat Websuche und Zugriff auf deine Unterlagen.</span></div>
           <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"></div>
           <div class="field"><span class="label">Prüfer-Stimme</span><div class="row"><input type="text" id="s-tts" value="${esc(s.ttsModel)}" style="max-width:220px"><select id="s-voice" style="max-width:140px">${opt([['onyx', 'onyx'], ['alloy', 'alloy'], ['ash', 'ash'], ['echo', 'echo'], ['fable', 'fable'], ['nova', 'nova'], ['sage', 'sage'], ['shimmer', 'shimmer']], s.ttsVoice)}</select></div>
             <label class="check"><input type="checkbox" id="s-voice-on" ${s.examinerVoice ? 'checked' : ''}> Prüfer liest seine Fragen und Antworten vor (Textmodus; in jedem Modus per VORLESEN umschaltbar; ▶ liest jederzeit auf Wunsch)</label></div>

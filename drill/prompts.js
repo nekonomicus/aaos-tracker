@@ -537,6 +537,17 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
     { type: 'function', name: 'folie_zeigen', description: 'Zeigt dem Kandidaten das Bild einer Folie der geladenen Präsentation auf dem Bildschirm. Vor jeder besprochenen Folie aufrufen.', parameters: { type: 'object', properties: { nummer: { type: 'integer', description: 'Foliennummer' }, name: { type: 'string', description: 'Dateiname der Präsentation, falls mehrere geladen sind' } }, required: ['nummer'] } },
   ];
 
+  const WEB_TOOL = {
+    type: 'function', name: 'websuche',
+    description: 'Sucht live im Internet: Originalarbeit des Erstautors, AO Surgery Reference, Leitlinien und Fachgesellschaften (swiss orthopaedics, AAOS, DGOU), PubMed. Liefert eine belegte Kurzantwort mit Quellen-URLs. Verwenden, wenn etwas nicht in den Unterlagen steht, aktuell sein muss, oder der Kandidat nach Evidenz, Studien oder Quellen fragt.',
+    parameters: { type: 'object', properties: { frage: { type: 'string', description: 'Präzise Suchfrage, deutsch oder englisch, mit Eponymen und Fachbegriffen' } }, required: ['frage'] },
+  };
+  function webToolPrompt(query) {
+    return `Recherchiere mit der Websuche für einen Kandidaten der Facharztprüfung Orthopädie und Traumatologie (swiss orthopaedics): «${query}».
+Rangfolge der Quellen: Originalbeschreibung / Erstautor; AO Surgery Reference und AO Foundation; Leitlinien und Fachgesellschaften (swiss orthopaedics, SGOT, DGOU, AAOS, BOA, Swissnoso, SUVA); ${S_TIER}. Orthobullets und Radiopaedia höchstens als Wegweiser, nie als Beleg. Keine Foren, Blogs, Wikis, Patientenseiten.
+Antworte auf Deutsch, höchstens 180 Wörter: zuerst die Antwort in Telegrammstil mit Zahlen, Typen, Grenzwerten und Konsequenzen, dann «Quellen:» als Liste (Autor, Jahr, Zeitschrift bzw. Herausgeber). Keine erfundenen Quellen, kein Link, den du nicht gesehen hast.`;
+  }
+
   const LOOKUP_TOOL = {
     type: 'function', name: 'nachschlagen',
     description: 'Durchsucht die Unterlagen des Kandidaten (FMH-Präsentationen, abgelegte PDFs, Notizen, Abfrage-Items) nach Passagen zu einer Frage. Verwenden, bevor du eine Zahl, einen Grenzwert oder eine Klassifikationsangabe nennst, die du nicht sicher weisst.',
@@ -544,7 +555,7 @@ ${task}${passages ? `\nNACHSCHLAG AUS DEN UNTERLAGEN DES KANDIDATEN (nur für di
   };
 
   window.PROMPTS = {
-    PRINCIPLES, SWISS, VOICE_TRANSCRIBE_PROMPT, LOOKUP_TOOL, DECK_TOOLS, WALKTHROUGH, WALKTHROUGH_LIVE, CLOSING, opener, voiceExaminer, voiceOpen, voiceTurn, voiceTutor,
+    PRINCIPLES, SWISS, VOICE_TRANSCRIBE_PROMPT, LOOKUP_TOOL, WEB_TOOL, webToolPrompt, DECK_TOOLS, WALKTHROUGH, WALKTHROUGH_LIVE, CLOSING, opener, voiceExaminer, voiceOpen, voiceTurn, voiceTutor,
     REGIONS, TYPES, FILTER_TYPES, CASE_REGION_TO_DRILL, STATIONS, STRICTNESS, IMAGE_QUESTIONS,
     examinerSystem, dossierPrompt, DOSSIER_SCHEMA, turnPrompt, TURN_SCHEMA, feedbackPrompt, FEEDBACK_SCHEMA,
     gradeSystem, gradePrompt, GRADE_SCHEMA, imageGradeSystem, imageGradePrompt, IMAGE_GRADE_SCHEMA,

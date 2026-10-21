@@ -99,6 +99,8 @@ browser's own voice), Space reveals, 1/2/3 rates. After the reveal a NACHFRAGEN 
 the rating buttons: ask the examiner why, how to say it, or to quiz you on it, by text or ● LIVE;
 the card and its conversation survive a reload until you rate it.
 
+In every text chat (FREI, NACHFRAGEN) and in the live voice the examiner has two tools it uses on its own: `nachschlagen` searches your documents, `websuche` searches the internet (original author, AO Surgery Reference, guidelines, PubMed) and returns a cited answer; the bubble shows SUCHT IM NETZ / SCHLÄGT NACH while it works. Ask it what model it is and it tells you the exact model, effort and tools.
+
 **FREI** — free prompt with the same examiner persona. Pick a case, a region, SCHWÄCHEN
 DRILLEN, or nothing, and press START (its label says what it will do; with nothing picked the
 examiner chooses a topic himself): a new thread begins, the examiner is briefed on exactly that
@@ -227,7 +229,7 @@ model is picked the same way (newest full `gpt-realtime`, e.g. 2.1 › 2 › 1.5
 voice (`cedar` default, `marin` the other new one), and Pausentoleranz (how long the examiner
 lets you pause before he answers; semantic voice activity detection, "lang" lets you think
 mid-answer, "kurz" answers fastest). Use headphones to avoid echo. The live model only runs
-the conversation; the case, the grading and the feedback stay on the strong chat model. Denkaufwand (schnell / ausgewogen / gründlich:
+the conversation; the case, the grading and the feedback stay on the strong chat model. Denkaufwand defaults to **maximal**: highest reasoning effort on every text call (examiner chat, case, grading, feedback, items, search); lower it under ⚙ if turns feel slow (maximal / gründlich / ausgewogen / schnell:
 case creation and feedback think harder than follow-ups and grading), Strenge (default hart),
 Nachfragen pro Station, Prüfer-Stimme (TTS), Sprache, and a free-text instruction that is
 appended to the examiner prompt ("frag mehr nach Zugängen").
