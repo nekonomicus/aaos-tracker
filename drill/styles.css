@@ -280,3 +280,11 @@ details.plain summary:hover { color: var(--ink); }
 .slides img { max-height: 280px; max-width: 100%; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
 .deck figcaption, .slides figcaption { font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--faint); margin-top: 3px; }
 .slides { margin: 8px 0 4px; }
+
+/* item media: slides, saved images, pad */
+.media { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.media figure { margin: 0; }
+.media img { max-height: 220px; max-width: 100%; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
+.media figcaption { font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--faint); margin-top: 3px; }
+.drop.small { padding: 14px 16px; font-size: 9px; margin-top: 4px; }
+#item-pad summary { margin-top: 6px; }

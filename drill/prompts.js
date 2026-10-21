@@ -439,8 +439,11 @@ ${text}
     },
   };
 
-  function researchPrompt(caseItem) {
-    return `Suche im Web 3–5 frei zugängliche Seiten, auf denen ein typisches, echtes Röntgen-, CT- oder MRI-Bild zu diesem Prüfungsthema zu sehen ist: ${caseItem.title} (${caseItem.region}). Bevorzuge konkrete Fallseiten (Radiopaedia-Fälle mit passender Diagnose, AO Surgery Reference, Orthobullets, Wikimedia Commons, Fachartikel mit offenen Abbildungen). Keine Lehrbuch-Schemata, keine Shops. Für jede Seite: Titel, URL, und in max. 12 Wörtern, was dort zu sehen ist (Modalität, Ebene, Befund). Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
+  function researchPrompt(caseItem, mode) {
+    const what = mode === 'item'
+      ? `ein Bild zu dieser Klassifikation bzw. diesem Algorithmus zu sehen ist (ein Schema mit allen Typen oder typische Röntgen- / CT-Bilder je Typ)`
+      : `ein typisches, echtes Röntgen-, CT- oder MRI-Bild zu diesem Prüfungsthema zu sehen ist`;
+    return `Suche im Web 3–5 frei zugängliche Seiten, auf denen ${what}: ${caseItem.title} (${caseItem.region}). Bevorzuge konkrete Fallseiten (Radiopaedia-Fälle mit passender Diagnose, AO Surgery Reference, Orthobullets, Wikimedia Commons, Fachartikel mit offenen Abbildungen). ${mode === 'item' ? 'Keine Shops.' : 'Keine Lehrbuch-Schemata, keine Shops.'} Für jede Seite: Titel, URL, und in max. 12 Wörtern, was dort zu sehen ist (Modalität, Ebene, Befund). Antworte ausschliesslich als JSON: {"links":[{"title":"","url":"","why":""}]}`;
   }
 
   // ------------------------------------------------------------- RETRIEVAL

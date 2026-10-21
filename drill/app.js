@@ -871,8 +871,8 @@
     const icon = { bestätigt: '✓', korrigiert: '✗', unklar: '?' };
     return `<div class="fact"><span class="label muted">${esc(title)}</span>${befunde.length ? `<ul class="clean">${befunde.map((b) => `<li class="fact-${b.status}"><span class="fact-icon">${icon[b.status]}</span> ${esc(b.aussage)}${b.korrektur && b.status !== 'bestätigt' ? `<br><strong>${esc(b.korrektur)}</strong>` : ''}${b.quelle || b.url ? `<br><span class="meta">${b.url ? `<a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.quelle || b.url)}</a>` : esc(b.quelle)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="meta">Keine prüfbaren Behauptungen.</p>'}</div>`;
   }
-  async function researchLinks(caseItem) {
-    const { json, cites } = await webSearchJSON(P.researchPrompt(caseItem));
+  async function researchLinks(caseItem, mode) {
+    const { json, cites } = await webSearchJSON(P.researchPrompt(caseItem, mode));
     let links = Array.isArray(json?.links) ? json.links : [];
     if (!links.length) links = cites.map((a) => ({ title: a.title, url: a.url, why: '' }));
     const seen = new Set();
@@ -891,6 +891,105 @@
     const canvas = document.createElement('canvas'); canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
     canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
     return new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.88));
+  }
+
+  // ------------------------------------------------------------- item media
+  // Images for a quiz / lazy item: slides of its own deck or case decks whose text names the item (rare tokens
+  // such as eponyms carry the match, generic words do not), plus the candidate's own saved images. With none,
+  // a web search lists pages with the figure, and a pad saves a dropped / pasted / linked image to the item.
+  let imgIdx = null;
+  function imageIndex() {
+    if (imgIdx && Date.now() - imgIdx.t < 60000) return imgIdx;
+    const GEN = new Set(['pptx', 'fractur', 'fx', 'incl']);
+    const pool = IMAGES.map((im) => ({ src: `data/img/${im.file}`, caption: `FOLIE ${im.slide} · ${im.src}`, kind: im.kind, deck: im.src, cases: im.cases || [], toks: new Set(Index.tokens(im.text || '')), dtoks: new Set(Index.tokens(im.src.replace(/\.(pptx|pdf)$/i, '').replace(/[-_.]+/g, ' ')).filter((t) => !GEN.has(t))) }));
+    for (const m of materialsIndex) for (const im of m.images || []) pool.push({ src: im.src, caption: `FOLIE ${im.slide} · ${m.name}`, kind: 'xray', deck: m.name, cases: m.caseIds || [], toks: new Set(Index.tokens(im.text || '')), dtoks: new Set(Index.tokens(m.name.replace(/\.[a-z]+$/i, '').replace(/[-_.]+/g, ' ')).filter((t) => !GEN.has(t))) });
+    const dfImg = new Map(); for (const x of pool) for (const t of x.toks) dfImg.set(t, (dfImg.get(t) || 0) + 1);
+    const dfBank = new Map(); for (const it of allItems()) if (it.type !== 'bild') for (const t of new Set(Index.tokens(`${it.topic || ''} ${it.q}`))) dfBank.set(t, (dfBank.get(t) || 0) + 1);
+    imgIdx = { t: Date.now(), pool, dfImg, dfBank };
+    return imgIdx;
+  }
+  function itemImages(item) {
+    const own = ((state.itemImages || {})[item.id] || []).map((u) => ({ src: u.src, caption: u.credit || 'eigenes Bild', kind: 'own' }));
+    if (item.type === 'bild') return own;
+    const { pool, dfImg, dfBank } = imageIndex();
+    const q = [...new Set(Index.tokens(`${item.topic || ''} ${item.q}`))].filter((t) => t.length >= 4);
+    const deckName = /^ernte (.+)$/.exec(item.source || '')?.[1] || null;
+    const rare = (t) => (dfImg.get(t) || 0) <= 3 && (dfBank.get(t) || 0) <= 3;
+    const mid = (t) => (dfImg.get(t) || 0) <= 12 && (dfBank.get(t) || 0) <= 8;
+    const scored = [];
+    for (const img of pool) {
+      let sc = 0; let n = 0; let hasRare = false;
+      for (const t of q) {
+        const inText = img.toks.has(t); const inDeck = img.dtoks.has(t); if (!inText && !inDeck) continue;
+        n += 1;
+        if ((inDeck && (dfBank.get(t) || 0) <= 3) || rare(t)) { sc += 2.5; hasRare = true; } else if (mid(t)) sc += 1; else sc += 0.25;
+      }
+      const linked = (deckName && img.deck === deckName) || (item.caseIds || []).some((c) => img.cases.includes(c));
+      const ok = linked ? sc >= 1 : ((hasRare && n >= 2) || sc >= 5);
+      if (ok) scored.push({ img, sc: sc + (linked ? 1 : 0) });
+    }
+    scored.sort((a, b) => b.sc - a.sc);
+    const seen = new Set(); const picked = [];
+    for (const { img } of scored) { if (seen.has(img.src)) continue; seen.add(img.src); picked.push(img); if (picked.length >= 4) break; }
+    return own.concat(picked);
+  }
+  let padPaste = null;
+  function mountMedia(container, item, reveal) {
+    if (!container || !item || item.type === 'bild') return;
+    const imgs = itemImages(item);
+    const gallery = (list) => (list.length ? `<div class="media">${list.map((i) => `<figure><img src="${esc(i.src)}" data-zoom alt=""><figcaption>${esc(i.caption)}</figcaption></figure>`).join('')}</div>` : '');
+    if (!reveal) { container.innerHTML = gallery(imgs.filter((i) => ['xray', 'ct', 'mri'].includes(i.kind))); return; } // before the answer: radiographs only, never the schema
+    const note = (state.itemNotes || {})[item.id] || '';
+    const auto = item.type === 'klassifikation' || item.type === 'algorithmus';
+    container.innerHTML = `${gallery(imgs)}
+      <div class="row" style="margin-top:10px"><input type="text" id="item-note" placeholder="Merkhilfe zu diesem Item · wird gespeichert" value="${esc(note)}" style="max-width:560px"></div>
+      <details class="plain" id="item-pad" ${imgs.length ? '' : 'open'}><summary>${imgs.length ? 'BILD HINZUFÜGEN' : 'KEIN BILD IN DEINEN PRÄSENTATIONEN · SUCHEN UND ABLEGEN'}</summary>
+        <div id="item-links" class="schema" style="margin:8px 0"></div>
+        <div class="drop small" id="item-drop">BILD HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" accept="image/*" hidden></div>
+        <div class="row" style="margin-top:6px"><input type="text" id="item-url" placeholder="oder Bild-URL einfügen" style="max-width:380px"><button class="btn small" id="item-url-go">ÜBERNEHMEN</button><button class="btn small ghost" id="item-search">BILD SUCHEN</button><span class="img-credit" id="item-status"></span></div>
+      </details>`;
+    const noteEl = container.querySelector('#item-note');
+    noteEl.onchange = () => { (state.itemNotes = state.itemNotes || {})[item.id] = noteEl.value.trim(); Store.saveState(); };
+    const status = (t, bad) => { const el = container.querySelector('#item-status'); if (el) { el.textContent = t; el.classList.toggle('warn', !!bad); } };
+    const useBlob = async (blob, credit) => {
+      try {
+        status('Bild wird gespeichert …');
+        const jpeg = await blobToJpeg(blob);
+        const src = await Store.uploadFile(jpeg, `item-${item.id}-${Date.now()}.jpg`);
+        if (!src) throw new Error('Speichern nur mit laufendem server.py möglich');
+        (state.itemImages = state.itemImages || {})[item.id] = ((state.itemImages[item.id]) || []).concat({ src, credit, t: Date.now() });
+        clearTimeout(Store._timer); await Store.flush();
+        mountMedia(container, item, true); toast('Bild gespeichert');
+      } catch (error) { status(error.message, true); }
+    };
+    const fromUrl = async (url) => { try { status('Bild wird geladen …'); const blob = await fetch(proxied(url)).then((r) => { if (!r.ok) throw new Error(`Bild nicht ladbar (${r.status})`); return r.blob(); }); await useBlob(blob, new URL(url).hostname.replace(/^www\./, '')); } catch (error) { status(error.message, true); } };
+    const drop = container.querySelector('#item-drop'); const input = drop.querySelector('input');
+    drop.onclick = () => input.click();
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); }; drop.ondragleave = () => drop.classList.remove('over');
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/')); if (f) useBlob(f, `eigenes Bild · ${f.name}`); else { const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:/.test(url)) fromUrl(url.trim()); } };
+    input.onchange = () => { const f = input.files[0]; if (f) useBlob(f, `eigenes Bild · ${f.name}`); input.value = ''; };
+    container.querySelector('#item-url-go').onclick = () => { const u = container.querySelector('#item-url').value.trim(); if (/^https?:/.test(u)) fromUrl(u); else status('Keine gültige URL', true); };
+    if (padPaste) document.removeEventListener('paste', padPaste);
+    padPaste = (e) => {
+      if (!container.isConnected) { document.removeEventListener('paste', padPaste); padPaste = null; return; }
+      if (e.target && ['TEXTAREA', 'INPUT'].includes(e.target.tagName)) return;
+      const f = Array.from(e.clipboardData?.files || []).find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); useBlob(f, 'eigenes Bild · Screenshot'); }
+    };
+    document.addEventListener('paste', padPaste);
+    // pages with the figure: automatic for classifications / algorithms without an image, otherwise on BILD SUCHEN; cached per item
+    const linksEl = container.querySelector('#item-links');
+    const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+    const showLinks = (links) => { linksEl.innerHTML = links.length ? `<span class="label muted">SEITEN MIT PASSENDEM BILD</span><ul class="clean" style="margin-top:6px">${links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a> <span class="faint">${esc(host(l.url))}${l.why ? ` · ${esc(l.why)}` : ''}</span></li>`).join('')}</ul>` : '<span class="muted">Websuche ohne Ergebnis. Radiopaedia, AO Surgery Reference oder Orthobullets manuell durchsuchen.</span>'; };
+    const search = async () => {
+      const cached = (state.itemLinks || {})[item.id]; if (cached?.links) { showLinks(cached.links); return; }
+      if (!state.settings.apiKey) return;
+      linksEl.innerHTML = '<span class="spinner"></span> <span class="thinking">PRÜFER SUCHT PASSENDE SEITEN</span>';
+      try { const links = await researchLinks({ title: `${item.topic ? `${item.topic}: ` : ''}${item.q}`, region: item.region }, 'item'); (state.itemLinks = state.itemLinks || {})[item.id] = { links, t: Date.now() }; Store.saveState(); if (container.isConnected) showLinks(links); }
+      catch (error) { if (container.isConnected) linksEl.innerHTML = `<span class="muted">Websuche nicht verfügbar (${esc(error.message)})</span>`; }
+    };
+    container.querySelector('#item-search').onclick = search;
+    if ((state.itemLinks || {})[item.id]?.links) showLinks(state.itemLinks[item.id].links);
+    else if (!imgs.length && auto) search();
   }
 
   // ------------------------------------------------------------------ router
@@ -1476,12 +1575,14 @@
         <div class="meta">${esc(item.topic)}</div>
         <div class="quiz-q">${esc(item.q)} ${sayHtml(item.q)}</div>
         ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
+        <div id="q-media"></div>
         <div id="ask"><textarea class="answer" id="answer" placeholder="Antwort · Enter sendet, Shift+Enter neue Zeile"></textarea>
         <div class="answer-tools"><button class="btn rec" id="mic">● SPRECHEN</button><span class="spacer"></span><button class="btn ghost" id="btn-skip">WEISS ICH NICHT</button><button class="btn primary" id="btn-send">ANTWORTEN</button></div></div>
         <div id="verdict"></div>`;
       const ta = $('#answer');
       wireMic($('#mic'), ta);
       $('#mic').after(readToggle());
+      if (!sess.verdict) mountMedia($('#q-media'), item, false);
       if (!sess.verdict && state.settings.examinerVoice) say(item.q);
       ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sess.verdict) $('#btn-send').click(); } });
       $('#btn-send').onclick = () => grade(item, ta.value.trim());
@@ -1522,6 +1623,7 @@
           <div id="q-discuss" style="margin-top:14px"></div>
         </div>`;
       $('#btn-next').onclick = next; $('#btn-next').focus();
+      mountMedia($('#q-media'), item, true);
       $('#btn-fact').onclick = async () => {
         if (!requireKey()) return; const b = $('#btn-fact'); b.disabled = true; const holder = $('#q-fact');
         holder.innerHTML = '<div class="fact"><div class="thinking"><span class="spinner"></span> &nbsp;PRÜFE GEGEN DIE LITERATUR</div></div>';
@@ -1582,8 +1684,10 @@
         <div class="meta">${esc(item.topic)}</div>
         <div class="quiz-q">${esc(item.q)} ${sayHtml(item.q)}</div>
         ${item.img ? `<div class="quiz-img"><img src="${esc(item.img)}" data-zoom alt=""></div>` : ''}
+        <div id="q-media"></div>
         <div id="a"><button class="btn" id="btn-reveal">ANTWORT <span class="kbd">Space</span></button></div>`;
       $('#btn-reveal').onclick = reveal;
+      mountMedia($('#q-media'), item, false);
       if (sess.talk && sess.talk.id === item.id) { reveal(); return; } // the card was open (and maybe discussed) before a reload
       if (state.settings.readAloud) readAloud(item.q);
     }
@@ -1596,6 +1700,7 @@
       $('#a').querySelectorAll('[data-s]').forEach((b) => { b.onclick = () => rate(Number(b.dataset.s)); });
       // talk to the examiner about this card: why, how to say it, what hangs together with it
       if (!sess.talk || sess.talk.id !== item.id) sess.talk = { id: item.id, discussion: [] };
+      mountMedia($('#q-media'), item, true);
       liveChat = discussion($('#lazy-discuss'), `LAZY-KARTE (nicht bewertet; der Kandidat hat die Antwort gelesen und will sie verstehen oder üben)\nFRAGE: ${item.q}\nMUSTERANTWORT: ${item.a}`, sess.talk, save, `${item.topic || ''} ${item.q}`, { open: true, greeting: 'Sage in einem Satz, dass der Kandidat jetzt zu dieser Karte nachfragen oder sich abfragen lassen kann.' });
       save();
       if (state.settings.readAloud) readAloud(item.a);

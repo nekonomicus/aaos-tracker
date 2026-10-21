@@ -72,6 +72,13 @@ own PPTX / PDF) and extracts every classification (all types with their conseque
 treatment or decision algorithm (numbered steps with the thresholds) as items of type
 `klassifikation` / `algorithmus`; a rerun only processes new decks. The grader demands all
 types in order, or all steps in order with their thresholds, for a 2.
+Every item (ABFRAGE and LAZY) carries its images: before you answer, radiographs from your decks
+that belong to it; after the verdict or reveal, every matching slide (schemas included), a saved
+one-line Merkhilfe, and a pad to drop, paste (⌘V) or link an image that is stored for this item
+in `userdata/files/`. Matching is strict (an eponym or the item's own deck carries it), so a
+wrong slide is rarer than no slide. For a classification or algorithm without any image the
+examiner searches the web once and lists pages with the figure; BILD SUCHEN does the same for
+any other item.
 
 **LAZY** — same items, no typing, no API cost: read (or have it read aloud with the
 browser's own voice), Space reveals, 1/2/3 rates. After the reveal a NACHFRAGEN box opens under
