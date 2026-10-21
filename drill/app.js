@@ -1002,11 +1002,12 @@
     const note = (state.itemNotes || {})[item.id] || '';
     container.innerHTML = `${gallery(shown)}
       ${reveal ? `<div class="row" style="margin-top:10px"><input type="text" id="item-note" placeholder="Merkhilfe zu diesem Item · wird gespeichert" value="${esc(note)}" style="max-width:560px"></div>` : ''}
-      <details class="plain" id="item-pad" ${reveal && !imgs.length ? 'open' : ''}><summary>BILDER · ${imgs.length ? `${imgs.length} AUS DEINEN PRÄSENTATIONEN` : 'KEINES IN DEINEN PRÄSENTATIONEN'} · SUCHEN / ABLEGEN</summary>
+      <details class="plain" id="item-pad" ${((state.itemRefs || {})[item.id] || []).length || (state.itemLinks || {})[item.id]?.links?.length ? 'open' : ''}><summary>BILDER & LINKS · ${imgs.length ? `${imgs.length} AUS DEINEN PRÄSENTATIONEN` : 'KEINES IN DEINEN PRÄSENTATIONEN'}${((state.itemRefs || {})[item.id] || []).length ? ` · ${((state.itemRefs || {})[item.id] || []).length} LINKS` : ''} · SUCHEN / ABLEGEN</summary>
         <div class="row" style="margin:8px 0">${hidden ? `<button class="btn small" id="item-show">FOLIEN ZEIGEN (${hidden})</button>` : ''}<button class="btn small ghost" id="item-search">BILD SUCHEN</button><span class="meta">Websuche nach Seiten mit dem Bild · auf Wunsch</span></div>
         <div id="item-links" class="schema" style="margin:8px 0"></div>
+        <div id="item-refs" class="refs"></div>
         <div class="drop small" id="item-drop">BILD ODER PDF HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" accept="image/*,.pdf,application/pdf" hidden></div>
-        <div class="row" style="margin-top:6px"><input type="text" id="item-url" placeholder="oder Bild- / PDF-URL einfügen" style="max-width:380px"><button class="btn small" id="item-url-go">ÜBERNEHMEN</button><input type="number" id="item-page" min="1" value="1" title="Seite, wenn ein PDF abgelegt wird" style="max-width:80px"><span class="meta">PDF-SEITE</span><span class="img-credit" id="item-status"></span></div>
+        <div class="row" style="margin-top:6px"><input type="text" id="item-url" placeholder="URL einfügen: Bild oder PDF wird gespeichert, jede andere Seite als Link" style="max-width:420px"><button class="btn small" id="item-url-go">ÜBERNEHMEN</button><input type="number" id="item-page" min="1" value="1" title="Seite, wenn ein PDF abgelegt wird" style="max-width:80px"><span class="meta">PDF-SEITE</span><span class="img-credit" id="item-status"></span></div>
       </details>`;
     const noteEl = container.querySelector('#item-note');
     if (noteEl) noteEl.onchange = () => { (state.itemNotes = state.itemNotes || {})[item.id] = noteEl.value.trim(); Store.saveState(); };
@@ -1025,13 +1026,27 @@
         mountMedia(container, item, reveal, showAll); container.querySelector('#item-pad').open = true; toast('Bild gespeichert');
       } catch (error) { status(error.message, true); }
     };
-    const fromUrl = async (url) => { try { status('Bild wird geladen …'); const blob = await fetch(proxied(url)).then((r) => { if (!r.ok) throw new Error(`Bild nicht ladbar (${r.status})`); return r.blob(); }); await useBlob(blob, new URL(url).hostname.replace(/^www\./, '')); } catch (error) { status(error.message, true); } };
+    const refs = () => ((state.itemRefs = state.itemRefs || {})[item.id] = state.itemRefs[item.id] || []);
+    const paintRefs = () => {
+      const el = container.querySelector('#item-refs'); if (!el) return; const list = refs();
+      el.innerHTML = list.length ? `<span class="label muted">GESPEICHERTE LINKS</span>${list.map((r, i) => `<div class="ref"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title || r.url)}</a><button class="btn ghost small" data-ref="${i}" title="Link entfernen">✕</button></div>`).join('')}` : '';
+      el.querySelectorAll('[data-ref]').forEach((b) => { b.onclick = () => { list.splice(Number(b.dataset.ref), 1); Store.saveState(); paintRefs(); }; });
+    };
+    paintRefs();
+    const saveLink = (url, why) => {
+      const list = refs(); if (list.some((r) => r.url === url)) { status('Link schon gespeichert'); return; }
+      let title = url; try { const u = new URL(url); title = `${u.hostname.replace(/^www\./, '')}${u.pathname.length > 1 ? u.pathname.replace(/\/$/, '').slice(0, 60) : ''}`; } catch { /* keep url */ }
+      list.push({ url, title, t: Date.now() }); Store.saveState(); paintRefs(); container.querySelector('#item-url').value = '';
+      status(why ? `${why} · als Link gespeichert` : 'Als Link gespeichert');
+    };
+    const fromUrl = async (url) => { try { status('Wird geladen …'); const res = await fetch(proxied(url)); if (res.status === 415) { saveLink(url, 'Kein Bild und kein PDF'); return; } if (!res.ok) throw new Error(`nicht ladbar (${res.status})`); const blob = await res.blob(); if (!isImageOrPdf(blob)) { saveLink(url, 'Kein Bild und kein PDF'); return; } await useBlob(blob, new URL(url).hostname.replace(/^www\./, '')); } catch (error) { saveLink(url, `Bild ${error.message}`); } };
     const drop = container.querySelector('#item-drop'); const input = drop.querySelector('input');
     drop.onclick = () => input.click();
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); }; drop.ondragleave = () => drop.classList.remove('over');
     drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = Array.from(e.dataTransfer.files).find(isImageOrPdf); if (f) useBlob(f, `eigenes Bild · ${f.name}`); else { const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:/.test(url)) fromUrl(url.trim()); } };
     input.onchange = () => { const f = input.files[0]; if (f) useBlob(f, `eigenes Bild · ${f.name}`); input.value = ''; };
     container.querySelector('#item-url-go').onclick = () => { const u = container.querySelector('#item-url').value.trim(); if (/^https?:/.test(u)) fromUrl(u); else status('Keine gültige URL', true); };
+    container.querySelector('#item-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); container.querySelector('#item-url-go').click(); } });
     if (padPaste) document.removeEventListener('paste', padPaste);
     padPaste = (e) => {
       if (!container.isConnected) { document.removeEventListener('paste', padPaste); padPaste = null; return; }
@@ -1526,7 +1541,7 @@
         <select id="f-count" style="width:100px">${[10, 20, 40, 80, 999].map((n) => `<option value="${n}" ${f.count == n ? 'selected' : ''}>${n === 999 ? 'alle' : n}</option>`).join('')}</select>
         <span class="meta" id="f-count-label">${count()} ITEMS</span>
       </div>
-      <details class="plain more-filters" ${f.types.length || f.only !== 'all' || f.source !== 'all' ? 'open' : ''}><summary>FILTER</summary>
+      <details class="plain more-filters" ${f.types.length || f.only !== 'all' || f.source !== 'all' ? 'open' : ''}><summary>MEHR FILTER · TYP · FÄLLIG / NEU / SCHWACH · QUELLE</summary>
         <div class="filters" id="f-types" style="margin-top:8px">${P.FILTER_TYPES.map((t) => `<span class="pill clickable ${f.types.includes(t) ? 'on' : ''}" data-t="${t}">${t}</span>`).join('')}
           <span style="width:12px"></span>
           ${[['all', 'alle'], ['due', 'fällig'], ['new', 'neu'], ['weak', 'schwach']].map(([v, l]) => `<span class="pill clickable ${f.only === v ? 'on' : ''}" data-only="${v}">${l}</span>`).join('')}
@@ -1730,26 +1745,49 @@
         else { const passages = await lookup(`${item.topic || ''} ${item.q} ${item.a}`, 2500, { k: 3 }).catch(() => ''); result = await chatJSON({ system: P.gradeSystem(state.settings), messages: [{ role: 'user', content: P.gradePrompt(item, answer, passages) }], schema: P.GRADE_SCHEMA, name: 'korrektur' }); }
       } catch (error) { $('#verdict').innerHTML = `<p class="warn">${esc(error.message)}</p>`; $('#btn-send').disabled = false; $('#btn-skip').disabled = false; busy = false; return; }
       const score = Math.max(0, Math.min(2, Number(result.score) || 0));
+      const before = { ...stats(item.id) };
       sess.results.push(score); schedule(item.id, score); bump('quiz'); if (score === 2) bump('quizRight');
       if (score === 0 && !sess.requeue.includes(item.id) && sess.ids.length < 60) { sess.requeue.push(item.id); sess.ids.push(item.id); }
-      sess.verdict = { score, modelAnswer, urteil: result.urteil || '', fehlend: result.fehlend || [], answer, discussion: [] };
+      sess.verdict = { score, modelAnswer, urteil: result.urteil || '', fehlend: result.fehlend || [], answer, discussion: [], before, examinerScore: score };
       save(); busy = false;
       showVerdict(item);
+    }
+    // The candidate overrides the examiner's grade after reading or discussing the model answer:
+    // the Leitner update is undone and redone with the new score, the requeue follows.
+    function regrade(item, score) {
+      const v = sess.verdict; if (!v || v.score === score) return;
+      if (v.before) state.items[item.id] = { ...v.before };
+      schedule(item.id, score);
+      if (sess.results.length) sess.results[sess.results.length - 1] = score;
+      const later = sess.ids.indexOf(item.id, sess.i + 1);
+      if (score > 0 && later > -1 && sess.requeue.includes(item.id)) { sess.ids.splice(later, 1); sess.requeue = sess.requeue.filter((id) => id !== item.id); }
+      if (score === 0 && !sess.requeue.includes(item.id) && sess.ids.length < 60) { sess.requeue.push(item.id); sess.ids.push(item.id); }
+      v.score = score; save();
+      const box = $('#verdict .verdict'); if (box) { box.className = `verdict s${score}`; const l = box.querySelector('.label'); l.className = `label ${score === 2 ? 'ok' : score === 1 ? 'signal' : 'warn'}`; l.textContent = `${score === 2 ? 'KORREKT' : score === 1 ? 'TEILWEISE' : 'FALSCH'}${score !== v.examinerScore ? ' · SELBST BEWERTET' : ''}`; }
+      $('#quiz-bar')?.querySelectorAll('[data-s]').forEach((b) => b.classList.toggle('on', Number(b.dataset.s) === score));
+      const head = $('.quiz-head .meta:last-child'); if (head) head.textContent = counts();
     }
     function showVerdict(item) {
       const v = sess.verdict; const score = v.score;
       $('#ask').hidden = true;
       $('#verdict').innerHTML = `
         <div class="verdict s${score}">
-          <span class="label ${score === 2 ? 'ok' : score === 1 ? 'signal' : 'warn'}">${score === 2 ? 'KORREKT' : score === 1 ? 'TEILWEISE' : 'FALSCH'}</span>
+          <span class="label ${score === 2 ? 'ok' : score === 1 ? 'signal' : 'warn'}">${score === 2 ? 'KORREKT' : score === 1 ? 'TEILWEISE' : 'FALSCH'}${v.examinerScore != null && score !== v.examinerScore ? ' · SELBST BEWERTET' : ''}</span>
           ${v.answer ? `<div class="judge" style="margin:0 0 10px">DU: ${esc(v.answer)}</div>` : ''}
           <div class="model">${esc(v.modelAnswer)} ${sayHtml(v.modelAnswer)}</div>
           <div class="judge">${esc(v.urteil)}${v.fehlend?.length ? ` · fehlt: ${esc(v.fehlend.join(', '))}` : ''}</div>
-          <div class="row" style="margin-top:14px"><button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button><button class="btn ghost small" id="btn-fact" title="Musterantwort gegen die Literatur prüfen">FAKTENCHECK</button><button class="btn ghost small" id="btn-fix" title="Musterantwort falsch oder unpassend">MELDEN</button></div>
+          <div class="row" style="margin-top:14px"><button class="btn ghost small" id="btn-fact" title="Musterantwort gegen die Literatur prüfen">FAKTENCHECK</button><button class="btn ghost small" id="btn-fix" title="Musterantwort falsch oder unpassend">MELDEN</button></div>
           <div id="q-fact">${v.factcheck ? factBlock(v.factcheck) : ''}</div>
           <div id="q-discuss" style="margin-top:14px"></div>
-        </div>`;
+        </div>
+        <div class="answer-box" id="quiz-bar"><div class="answer-tools">
+          <span class="meta">SELBST BEWERTEN</span>
+          <button class="btn small ${score === 0 ? 'on' : ''}" data-s="0" title="Taste 1">FALSCH</button><button class="btn small ${score === 1 ? 'on' : ''}" data-s="1" title="Taste 2">TEILWEISE</button><button class="btn small ${score === 2 ? 'on' : ''}" data-s="2" title="Taste 3">KORREKT</button>
+          <span class="spacer"></span>
+          <button class="btn primary" id="btn-next">WEITER <span class="kbd">↵</span></button>
+        </div></div>`;
       $('#btn-next').onclick = next; $('#btn-next').focus();
+      $('#quiz-bar').querySelectorAll('[data-s]').forEach((b) => { b.onclick = () => regrade(item, Number(b.dataset.s)); });
       mountMedia($('#q-media'), item, true);
       $('#btn-fact').onclick = async () => {
         if (!requireKey()) return; const b = $('#btn-fact'); b.disabled = true; const holder = $('#q-fact');
@@ -1766,7 +1804,11 @@
       liveChat = discussion($('#q-discuss'), `FRAGE: ${item.q}\nMUSTERANTWORT: ${v.modelAnswer}\nANTWORT DES KANDIDATEN: ${v.answer || '(keine)'}\nBEWERTUNG: ${score}/2 · ${v.urteil}${v.fehlend?.length ? ` · fehlt: ${v.fehlend.join(', ')}` : ''}`, v, save, `${item.topic || ''} ${item.q}`);
       if (state.settings.examinerVoice) say(v.modelAnswer);
     }
-    function onKey(e) { if (sess.verdict && e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') { e.preventDefault(); next(); } }
+    function onKey(e) {
+      if (!sess.verdict || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+      if (e.key === 'Enter') { e.preventDefault(); next(); }
+      else if (['1', '2', '3'].includes(e.key)) { e.preventDefault(); const item = itemsById([sess.ids[sess.i]])[0]; if (item) regrade(item, Number(e.key) - 1); }
+    }
     document.addEventListener('keydown', onKey);
     currentCleanup = () => document.removeEventListener('keydown', onKey);
     function next() { distillThread(sess.verdict); sess.i += 1; sess.verdict = null; save(); show(); }

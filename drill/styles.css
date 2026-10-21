@@ -305,3 +305,11 @@ details.plain summary:hover { color: var(--ink); }
 .tile.gesehen, .sw.gesehen { background: #8a3b2f; color: #ffe1db; }
 .tile.teilweise, .sw.teilweise { background: #6f7f1c; color: #f4ffd0; }
 .tile.kompetent, .sw.kompetent { background: #2e9a4d; color: #eafff0; }
+
+/* saved links in an item's pad */
+.refs { margin: 6px 0 2px; }
+.refs .label { display: block; margin-bottom: 4px; }
+.refs .ref { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+.refs .ref a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.refs .ref .btn { padding: 2px 6px; }
+#quiz-bar { margin-top: 18px; }

@@ -63,7 +63,7 @@ variant. Cases are kept realistic and short: 3–5 sentences of papers like a re
 
 **ABFRAGE** — graded rapid-fire quiz on classifications, terminology, concepts, numbers,
 AO principles and technique. Filter by region, type, due/new/weak, keyword. The examiner
-grades 0/1/2 in one sentence and shows the model answer. Wrong items come back in the same
+grades 0/1/2 in one sentence and shows the model answer. The bar at the bottom stays while you read or discuss: WEITER (↵) and SELBST BEWERTEN with FALSCH / TEILWEISE / KORREKT (keys 1 / 2 / 3) override the examiner's grade, undo its Leitner update and redo it with yours (a FALSCH requeues the item, a KORREKT removes the requeue). Wrong items come back in the same
 session and sooner in later sessions (Leitner boxes: 0, 1, 3, 7, 14, 30 days).
 "15 NEUE FRAGEN" creates new items for the selected region from the presentation corpus.
 **KLASSIFIKATIONEN & ALGORITHMEN** sets the filter to exactly those two types (also in LAZY);
@@ -84,7 +84,7 @@ description), files it under its case and section, and the tile appears grey.
 Every item (ABFRAGE and LAZY) carries its images: before you answer, radiographs from your decks
 that belong to it and your own saved images; matching schema slides stay hidden until the
 verdict or reveal, or until you press FOLIEN ZEIGEN. The BILDER box is there before and after
-answering: BILD SUCHEN asks the examiner, on demand only, for pages with the figure, ranked by
+answering: paste any URL into the box: an image or PDF is saved as a picture, any other page is kept as a link under GESPEICHERTE LINKS (✕ removes it). BILD SUCHEN asks the examiner, on demand only, for pages with the figure, ranked by
 authority: the describing author's original publication first (Letournel & Judet, Garden,
 Schatzker, Neer …), then the classification's own authority (AO Foundation / AO Surgery Reference
 for AO, the society or guideline for an algorithm), reference sites last; each link is labelled
