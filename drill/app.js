@@ -885,7 +885,20 @@
     clearTimeout(Store._timer); await Store.flush();
     return { src, credit, note: note || '' };
   }
-  async function blobToJpeg(blob, maxSide = 1600) {
+  const isImageOrPdf = (f) => !!f && (f.type.startsWith('image/') || isPdf(f));
+  const isPdf = (f) => !!f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || ''));
+  async function pdfPageToBlob(blob, page = 1) {
+    const pdfjs = await loadPdfjs();
+    const pdf = await pdfjs.getDocument({ data: await blob.arrayBuffer() }).promise;
+    const pg = await pdf.getPage(Math.min(Math.max(1, Number(page) || 1), pdf.numPages));
+    const viewport = pg.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas'); canvas.width = viewport.width; canvas.height = viewport.height;
+    await pg.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const out = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+    out.pages = pdf.numPages; return out;
+  }
+  async function blobToJpeg(blob, maxSide = 1600, page = 1) {
+    if (isPdf(blob)) blob = await pdfPageToBlob(blob, page);
     const bmp = await createImageBitmap(blob);
     const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
@@ -946,8 +959,8 @@
       <details class="plain" id="item-pad" ${reveal && !imgs.length ? 'open' : ''}><summary>BILDER · ${imgs.length ? `${imgs.length} AUS DEINEN PRÄSENTATIONEN` : 'KEINES IN DEINEN PRÄSENTATIONEN'} · SUCHEN / ABLEGEN</summary>
         <div class="row" style="margin:8px 0">${hidden ? `<button class="btn small" id="item-show">FOLIEN ZEIGEN (${hidden})</button>` : ''}<button class="btn small ghost" id="item-search">BILD SUCHEN</button><span class="meta">Websuche nach Seiten mit dem Bild · auf Wunsch</span></div>
         <div id="item-links" class="schema" style="margin:8px 0"></div>
-        <div class="drop small" id="item-drop">BILD HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" accept="image/*" hidden></div>
-        <div class="row" style="margin-top:6px"><input type="text" id="item-url" placeholder="oder Bild-URL einfügen" style="max-width:380px"><button class="btn small" id="item-url-go">ÜBERNEHMEN</button><span class="img-credit" id="item-status"></span></div>
+        <div class="drop small" id="item-drop">BILD ODER PDF HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" accept="image/*,.pdf,application/pdf" hidden></div>
+        <div class="row" style="margin-top:6px"><input type="text" id="item-url" placeholder="oder Bild- / PDF-URL einfügen" style="max-width:380px"><button class="btn small" id="item-url-go">ÜBERNEHMEN</button><input type="number" id="item-page" min="1" value="1" title="Seite, wenn ein PDF abgelegt wird" style="max-width:80px"><span class="meta">PDF-SEITE</span><span class="img-credit" id="item-status"></span></div>
       </details>`;
     const noteEl = container.querySelector('#item-note');
     if (noteEl) noteEl.onchange = () => { (state.itemNotes = state.itemNotes || {})[item.id] = noteEl.value.trim(); Store.saveState(); };
@@ -955,8 +968,10 @@
     const status = (t, bad) => { const el = container.querySelector('#item-status'); if (el) { el.textContent = t; el.classList.toggle('warn', !!bad); } };
     const useBlob = async (blob, credit) => {
       try {
-        status('Bild wird gespeichert …');
-        const jpeg = await blobToJpeg(blob);
+        status(isPdf(blob) ? 'PDF-Seite wird gerendert …' : 'Bild wird gespeichert …');
+        const page = Number(container.querySelector('#item-page')?.value) || 1;
+        const jpeg = await blobToJpeg(blob, 1600, page);
+        if (isPdf(blob)) credit = `${credit} · Seite ${page}`;
         const src = await Store.uploadFile(jpeg, `item-${item.id}-${Date.now()}.jpg`);
         if (!src) throw new Error('Speichern nur mit laufendem server.py möglich');
         (state.itemImages = state.itemImages || {})[item.id] = ((state.itemImages[item.id]) || []).concat({ src, credit, t: Date.now() });
@@ -968,14 +983,14 @@
     const drop = container.querySelector('#item-drop'); const input = drop.querySelector('input');
     drop.onclick = () => input.click();
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); }; drop.ondragleave = () => drop.classList.remove('over');
-    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/')); if (f) useBlob(f, `eigenes Bild · ${f.name}`); else { const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:/.test(url)) fromUrl(url.trim()); } };
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = Array.from(e.dataTransfer.files).find(isImageOrPdf); if (f) useBlob(f, `eigenes Bild · ${f.name}`); else { const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:/.test(url)) fromUrl(url.trim()); } };
     input.onchange = () => { const f = input.files[0]; if (f) useBlob(f, `eigenes Bild · ${f.name}`); input.value = ''; };
     container.querySelector('#item-url-go').onclick = () => { const u = container.querySelector('#item-url').value.trim(); if (/^https?:/.test(u)) fromUrl(u); else status('Keine gültige URL', true); };
     if (padPaste) document.removeEventListener('paste', padPaste);
     padPaste = (e) => {
       if (!container.isConnected) { document.removeEventListener('paste', padPaste); padPaste = null; return; }
       if (e.target && ['TEXTAREA', 'INPUT'].includes(e.target.tagName)) return;
-      const f = Array.from(e.clipboardData?.files || []).find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); useBlob(f, 'eigenes Bild · Screenshot'); }
+      const f = Array.from(e.clipboardData?.files || []).find(isImageOrPdf); if (f) { e.preventDefault(); useBlob(f, isPdf(f) ? `eigenes PDF · ${f.name}` : 'eigenes Bild · Screenshot'); }
     };
     document.addEventListener('paste', padPaste);
     // pages with the figure: only on BILD SUCHEN, cached per item
@@ -1286,7 +1301,7 @@
         <span class="label muted">BILDDOKUMENTATION · KEIN EIGENES BILD ZU DIESEM FALL</span>
         <p class="muted" style="margin:8px 0 12px">Recherchiere das typische Bild selbst, dann hier ablegen (Datei, Screenshot per ⌘V, oder Bild-URL). Es bleibt diesem Fall zugeordnet.</p>
         <div id="links" class="schema"><span class="spinner"></span> &nbsp;<span class="thinking">PRÜFER SUCHT PASSENDE SEITEN</span></div>
-        <div class="drop" id="img-drop" style="margin:14px 0 10px;padding:22px">BILD HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" id="img-file" accept="image/*" hidden></div>
+        <div class="drop" id="img-drop" style="margin:14px 0 10px;padding:22px">BILD ODER PDF HIER ABLEGEN · ⌘V EINFÜGEN · KLICKEN<input type="file" id="img-file" accept="image/*,.pdf,application/pdf" hidden></div>
         <div class="row"><input type="text" id="img-url" placeholder="oder Bild-URL einfügen" style="max-width:420px"><button class="btn small" id="img-url-go">ÜBERNEHMEN</button><span class="spacer"></span><button class="btn ghost" id="img-skip">WEITER OHNE EIGENES BILD</button></div>
         <div class="img-credit" id="img-status"></div>`;
       const status = (t, bad) => { const el = $('#img-status'); if (el) { el.textContent = t; el.classList.toggle('warn', !!bad); } };
@@ -1303,9 +1318,9 @@
       drop.onclick = () => input.click();
       drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
       drop.ondragleave = () => drop.classList.remove('over');
-      drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/')); if (f) useBlob(f, `eigene Recherche · ${f.name}`); else { const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:/.test(url)) fromUrl(url.trim()); } };
+      drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = Array.from(e.dataTransfer.files).find(isImageOrPdf); if (f) useBlob(f, `eigene Recherche · ${f.name}`); else { const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:/.test(url)) fromUrl(url.trim()); } };
       input.onchange = () => { const f = input.files[0]; if (f) useBlob(f, `eigene Recherche · ${f.name}`); input.value = ''; };
-      const onPaste = (e) => { const f = Array.from(e.clipboardData?.files || []).find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); useBlob(f, 'eigene Recherche · Screenshot'); } };
+      const onPaste = (e) => { const f = Array.from(e.clipboardData?.files || []).find(isImageOrPdf); if (f) { e.preventDefault(); useBlob(f, isPdf(f) ? `eigene Recherche · ${f.name}` : 'eigene Recherche · Screenshot'); } };
       document.addEventListener('paste', onPaste);
       const prevCleanup = currentCleanup; currentCleanup = () => { document.removeEventListener('paste', onPaste); if (prevCleanup) prevCleanup(); };
       async function fromUrl(url) {
