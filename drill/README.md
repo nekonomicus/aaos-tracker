@@ -74,7 +74,7 @@ treatment or decision algorithm (numbered steps with the thresholds) as items of
 types in order, or all steps in order with their thresholds, for a 2.
 Below the buttons sits the **progress heatmap**: one tile per classification / algorithm item,
 grouped into the sections of the FMH oral case matrix (Trauma Schulter/Arm … Allgemein) and
-coloured like a stock heatmap: grey NEU (never asked), red GESEHEN (last answer wrong), olive
+coloured like a stock heatmap. The bank was audited case by case against the oral matrix: every classification and decision algorithm a Swiss examiner expects for the 123 cases is a tile (about 300 of them), and every answer names, per type, the treatment consequence or the prognostic meaning and ends with a "Prinzip" sentence on what separates the steps and why. Colours: grey NEU (never asked), red GESEHEN (last answer wrong), olive
 TEILWEISE (1–2 right in a row), green KOMPETENT (3 right in a row, Leitner box 3+). Clicking a
 tile quizzes that one item. The box under the board adds what is missing: type a name
 ("Sanders"), several ("Sanders, Hawkins, Vancouver"), an algorithm ("Algorithmus Lisfranc") or
@@ -203,7 +203,7 @@ one click. Toggle under ⚙.
   Remote images are downloaded through server.py (`/api/fetch`), since browsers cannot fetch
   cross-origin images themselves. In ABFRAGE/LAZY every image is also a drill item ("Befunden Sie das Bild"), graded
   by the vision model. Images from PPTX files you dump are extracted the same way.
-- `data/bank/*.js` — 299 seed items by region. Edit freely: one line per item
+- `data/bank/*.js` — 409 seed items by region. Edit freely: one line per item
   `[type, topic, question, answer]`. Items are identified by their question text, so
   changing a question resets its progress. Audited Oct 2026 against the bar above: every
   row was checked by a Swiss-examiner pass and two independent verifiers (facts / safety,

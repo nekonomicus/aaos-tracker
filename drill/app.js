@@ -10,7 +10,7 @@
   const CASES = window.CASES;
   const CORPUS = window.CORPUS || {};
   const IMAGES = window.IMAGES || [];
-  const BUILD = '2026-10-21 HEATMAP'; // shown in the footer, so a stale tab or an old checkout is obvious
+  const BUILD = '2026-10-22 KLASSIFIKATIONEN'; // shown in the footer, so a stale tab or an old checkout is obvious
   const EXAM_DATE = new Date('2026-11-21T15:00:00+01:00');
   const OPENAI = 'https://api.openai.com/v1';
   const INTERVALS = [0, 1, 3, 7, 14, 30]; // days per Leitner box
