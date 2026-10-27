@@ -24,7 +24,7 @@ then VERBINDUNG TESTEN. The key and all progress live in `drill/userdata/` (git-
 
 | file | content |
 | --- | --- |
-| `userdata/state.json` | settings, drill progress (Leitner boxes), case grades, daily log |
+| `userdata/state.json` | settings, drill progress (Leitner boxes), case grades, revised marks, daily log |
 | `userdata/backups/` | one copy of state.json per day, last 30 |
 | `userdata/bank.json` | drill items generated from your materials and from exam gaps |
 | `userdata/materials/` | text extracted from dumped PDFs / PPTX / DOCX |
@@ -39,7 +39,9 @@ for api.openai.com and for the PDF/PPTX parsers loaded from cdnjs.
 
 ## Modes
 
-**PRÜFUNG** — the case matrix (all 123 cases of the FMH tracker, grouped by region). Each
+**PRÜFUNG** — the case matrix (all 123 cases of the FMH tracker, grouped by region). The dot
+at the left of each case marks it as revised: click to set, click again to clear; the section
+header and the kicker count the marks, and they live in `state.json` with the grades. Each
 run mirrors the real exam: patient papers and image description, then the five official
 stations in fixed order (Anamnese/Untersuchung → Bildgebung/Zusatz → DD/Diagnose/Prognose →
 Therapie/Indikation/Aufklärung → Nachsorge), each with the same opening question every

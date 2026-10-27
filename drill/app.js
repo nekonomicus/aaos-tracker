@@ -1093,13 +1093,23 @@
     if (!log.length) return { runs: 0, last: null, mean: null };
     return { runs: log.length, last: log[log.length - 1].grade, mean: log.reduce((a, b) => a + b.grade, 0) / log.length };
   }
+  // revised marks: a small dot on each case tile of the Fall-Matrix, toggled by hand, kept in state.revised[caseId] = timestamp
+  const isRevised = (caseId) => !!(state.revised && state.revised[caseId]);
+  function toggleRevised(caseId) {
+    state.revised = state.revised || {};
+    if (state.revised[caseId]) delete state.revised[caseId]; else state.revised[caseId] = Date.now();
+    Store.saveState();
+    return isRevised(caseId);
+  }
+  function revisedTitle(caseId) { const t = state.revised?.[caseId]; return t ? `Revidiert am ${new Date(t).toLocaleDateString('de-CH')} · Klick entfernt die Markierung` : 'Als revidiert markieren'; }
   function renderMatrix() {
     const regions = []; for (const c of CASES) if (!regions.includes(c.region)) regions.push(c.region);
+    const revisedTotal = CASES.filter((c) => isRevised(c.id)).length;
     const done = CASES.filter((c) => caseSummary(c.id).runs > 0).length;
     const graded = CASES.map((c) => caseSummary(c.id).mean).filter((g) => g != null);
     const mean = graded.length ? graded.reduce((a, b) => a + b, 0) / graded.length : null;
     view.innerHTML = `
-      ${hero(`PRÜFUNG · ${done}/${CASES.length} FÄLLE · Ø ${fmtGrade(mean)}`, 'Fall-Matrix')}
+      ${hero(`PRÜFUNG · ${done}/${CASES.length} FÄLLE · Ø ${fmtGrade(mean)} · ${revisedTotal} REVIDIERT`, 'Fall-Matrix')}
       <div class="row" style="margin:-8px 0 26px">
         ${state.activeExam ? `<button class="btn primary" id="btn-resume">LAUFENDEN FALL FORTSETZEN · ${esc(caseById(state.activeExam.caseId)?.title || '')}</button>` : ''}
         <button class="btn ${state.activeExam ? '' : 'primary'}" id="btn-next">NÄCHSTER OFFENER FALL</button>
@@ -1109,10 +1119,12 @@
       ${regions.map((region) => {
         const items = CASES.filter((c) => c.region === region);
         const regionDone = items.filter((c) => caseSummary(c.id).runs > 0).length;
+        const regionRevised = items.filter((c) => isRevised(c.id)).length;
         return `<section class="matrix-group">
-          <div class="matrix-head"><h3>${esc(region)}</h3><span class="meta">${regionDone}/${items.length}</span></div>
-          ${items.map((c) => { const s = caseSummary(c.id); const hasImg = ownImages(c).length > 0; return `
-            <button class="case-row" data-case="${c.id}">
+          <div class="matrix-head"><h3>${esc(region)}</h3><span class="meta">${regionDone}/${items.length}${regionRevised ? ` · ${regionRevised} revidiert` : ''}</span></div>
+          ${items.map((c) => { const s = caseSummary(c.id); const hasImg = ownImages(c).length > 0; const rev = isRevised(c.id); return `
+            <button class="case-row${rev ? ' revised' : ''}" data-case="${c.id}">
+              <span class="rev${rev ? ' on' : ''}" data-rev="${c.id}" role="checkbox" aria-checked="${rev}" title="${esc(revisedTitle(c.id))}"></span>
               <span class="id">${esc(c.id.toUpperCase())}</span>
               <span class="title">${esc(c.title)}${hasImg ? ' <span class="faint" title="Bilder vorhanden">▣</span>' : ''}</span>
               <span class="runs">${s.runs ? `${s.runs}×` : ''}</span>
@@ -1120,7 +1132,22 @@
             </button>`; }).join('')}
         </section>`;
       }).join('')}`;
-    view.addEventListener('click', (e) => { const b = e.target.closest('.case-row'); if (b) location.hash = `#exam/${b.dataset.case}`; });
+    view.addEventListener('click', (e) => {
+      const dot = e.target.closest('.rev');
+      if (dot) {
+        // the dot sits inside the case tile: toggle the mark, never open the case
+        e.preventDefault(); e.stopImmediatePropagation();
+        const on = toggleRevised(dot.dataset.rev);
+        dot.classList.toggle('on', on); dot.setAttribute('aria-checked', String(on)); dot.title = revisedTitle(dot.dataset.rev);
+        dot.closest('.case-row').classList.toggle('revised', on);
+        const head = dot.closest('.matrix-group').querySelector('.matrix-head .meta');
+        const n = dot.closest('.matrix-group').querySelectorAll('.rev.on').length;
+        head.textContent = head.textContent.replace(/ · \d+ revidiert$/, '') + (n ? ` · ${n} revidiert` : '');
+        const kicker = view.querySelector('.hero .kicker'); if (kicker) kicker.textContent = kicker.textContent.replace(/\d+ REVIDIERT$/, `${CASES.filter((c) => isRevised(c.id)).length} REVIDIERT`);
+        return;
+      }
+      const b = e.target.closest('.case-row'); if (b) location.hash = `#exam/${b.dataset.case}`;
+    });
     if ($('#btn-resume')) $('#btn-resume').onclick = () => { location.hash = `#exam/${state.activeExam.caseId}`; };
     $('#btn-next').onclick = () => { const c = CASES.find((x) => caseSummary(x.id).runs === 0) || CASES[0]; location.hash = `#exam/${c.id}`; };
     $('#btn-random').onclick = () => { location.hash = `#exam/${CASES[Math.floor(Math.random() * CASES.length)].id}`; };
