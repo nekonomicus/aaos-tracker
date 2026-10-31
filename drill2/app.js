@@ -63,6 +63,13 @@
   }
 
   // ------------------------------------------------------------------ ui helpers
+  async function log(kind, text) {
+    const line = `${kind}: ${String(text || '').slice(0, 2000)}`;
+    console.log(`[FMH MUSTS] ${line}`);
+    if (serverOk) { try { await fetch('/api/log', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: line }); } catch { /* server gone */ } }
+  }
+  window.addEventListener('error', (e) => log('js', `${e.message} @ ${e.filename}:${e.lineno}`));
+  window.addEventListener('unhandledrejection', (e) => log('promise', e.reason?.message || String(e.reason)));
   let toastTimer = null;
   function toast(text, bad = false) {
     const el = $('#toast'); el.textContent = text; el.classList.toggle('bad', bad); el.hidden = false;
@@ -211,18 +218,18 @@
     button.addEventListener('click', async () => {
       if (!requireKey()) return;
       if (!Recorder.active) {
-        try { await Recorder.start(); button.classList.add('on'); button.textContent = '■ STOP'; $('#hint').textContent = 'Aufnahme läuft · STOP beendet und transkribiert'; }
-        catch (error) { toast(`Mikrofon: ${error.message}`, true); }
+        try { await Recorder.start(); button.classList.add('on'); button.textContent = '■ STOP'; }
+        catch (error) { toast(`Mikrofon: ${error.message}`, true); log('mic', error.message); }
         return;
       }
-      button.classList.remove('on'); button.textContent = '…'; button.disabled = true; $('#hint').textContent = 'Transkribiert …';
+      button.classList.remove('on'); button.textContent = '…'; button.disabled = true;
       try {
         const blob = await Recorder.stop();
         const text = await transcribe(blob, Recorder.ext);
         textarea.value = (textarea.value ? `${textarea.value.trim()} ` : '') + text;
         autosize(textarea); textarea.focus();
-      } catch (error) { toast(`Transkription: ${error.message}`, true); }
-      button.disabled = false; button.textContent = '● SPRECHEN'; $('#hint').textContent = '';
+      } catch (error) { toast(`Transkription: ${error.message}`, true); log('transcribe', `${transcribeModel()} · ${error.message}`); }
+      button.disabled = false; button.textContent = '● SPRECHEN';
     });
   }
 
@@ -259,10 +266,10 @@
     const lvl = (stufe) => ['ok', 'teilweise', 'fehlt'].map((v) => `<button class="btn small ${p[stufe] === v ? `sel-${v}` : ''}" data-set="${stufe}:${v}">${v.toUpperCase()}</button>`).join('');
     box.innerHTML = `
       <div class="row between"><h2>${esc(c.title)}</h2><button class="btn ghost" data-close>✕</button></div>
-      <div class="meta">${esc(c.region)} · ${esc(c.id)} · ${esc(c.miller)}${c.matrix ? '' : ' · Reserve'}${p.n ? ` · ${p.n}× geprüft` : ''}</div>
+      <div class="meta">${esc(c.region)}${p.n ? ` · ${p.n}× geprüft` : ''}</div>
       <div class="status-row"><span class="label">MUST</span><div class="row">${lvl('must')}</div><span class="label">EXCEL</span><div class="row">${lvl('excel')}</div></div>
       ${p.luecken ? `<div class="gaps"><span class="label">Letzte Lücken</span><br>${esc(p.luecken)}</div>` : ''}
-      <div class="field"><span class="label">Meine Notiz (Must-knows)</span><textarea id="case-note" placeholder="Ultra-kurz: was man bei diesem Fall nicht verpassen darf. Der Coach prüft zuerst genau diese Punkte.">${esc(noteFor(id))}</textarea><span class="help">Wird beim Schliessen gespeichert und bei jeder Abfrage mitgegeben.</span></div>
+      <div class="field"><span class="label">Meine Notiz (Must-knows)</span><textarea id="case-note">${esc(noteFor(id))}</textarea></div>
       <div class="row between">
         <div class="row"><button class="btn primary" data-ask="must">MUST ABFRAGEN</button><button class="btn" data-ask="excel">EXCEL ABFRAGEN</button><button class="btn" data-ask="list">LISTE ZEIGEN</button></div>
         <button class="btn ghost" data-reset>ZURÜCKSETZEN</button>
@@ -275,8 +282,8 @@
       if (b.dataset.reset !== undefined) { setProgress(id, null, null); return openCase(id); }
       if (b.dataset.set) { const [stufe, v] = b.dataset.set.split(':'); setProgress(id, stufe, v); return openCase(id); }
       if (b.dataset.ask) {
-        const text = { must: `Prüfe mich auf die Must-knows von «${c.title}» (${c.id}).`, excel: `Prüfe mich auf Excel-Niveau zu «${c.title}» (${c.id}): die schweren Fragen.`, list: `Zeig mir die Must-knows und danach die Excel-Punkte zu «${c.title}» (${c.id}), kompakt.` }[b.dataset.ask];
-        close(); send(text);
+        const ask = { must: [`Prüfe mich auf die Must-knows von «${c.title}» (${c.id}).`, `${c.title} · MUST`], excel: [`Prüfe mich auf Excel-Niveau zu «${c.title}» (${c.id}): die schweren Fragen.`, `${c.title} · EXCEL`], list: [`Zeig mir die Must-knows und danach die Excel-Punkte zu «${c.title}» (${c.id}), kompakt.`, `${c.title} · Liste`] }[b.dataset.ask];
+        close(); send(ask[0], ask[1]);
       }
     };
     modal.onclick = (e) => { if (e.target === modal) close(); };
@@ -289,11 +296,10 @@
     const opt = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('');
     box.innerHTML = `
       <div class="row between"><h2>Einstellungen</h2><button class="btn ghost" data-close>✕</button></div>
-      <div class="meta">${serverOk ? 'Gespeichert in drill2/userdata auf diesem Mac' : 'Ohne server.py: gespeichert im Browser (localStorage)'}</div>
       <div class="field"><span class="label">OpenAI API-Schlüssel</span><input type="password" id="s-key" value="${esc(s.apiKey)}" placeholder="sk-…" autocomplete="off"></div>
-      <div class="field"><span class="label">Modell</span><input type="text" id="s-model" value="${esc(s.model)}" list="models"><datalist id="models"></datalist><span class="help">«auto» nimmt das stärkste Modell deines Schlüssels (gpt-6 › gpt-5.x › gpt-4.1, keine mini/nano/pro)${s.resolvedModel ? ` · aktuell ${esc(s.resolvedModel)}` : ''}. Oder eine Modell-ID eintippen.</span></div>
-      <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['xhigh', 'xhigh · maximal (wenn das Modell es kann, sonst high)'], ['high', 'high · gründlich (Standard)'], ['medium', 'medium · schneller'], ['low', 'low · nur zum Testen']], s.effort)}</select></div>
-      <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"><span class="help">«auto» nimmt das neuste gpt-…-transcribe deines Schlüssels${s.resolvedTranscribe ? ` · aktuell ${esc(s.resolvedTranscribe)}` : ''}.</span></div>
+      <div class="field"><span class="label">Modell</span><input type="text" id="s-model" value="${esc(s.model)}" list="models"><datalist id="models"></datalist></div>
+      <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['xhigh', 'xhigh'], ['high', 'high'], ['medium', 'medium'], ['low', 'low']], s.effort)}</select></div>
+      <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"></div>
       <div class="row between">
         <div class="row"><button class="btn primary" data-save>SPEICHERN</button><button class="btn" data-test>VERBINDUNG TESTEN</button></div>
         <div class="row"><button class="btn ghost" data-export>EXPORT</button><button class="btn ghost" data-import>IMPORT</button><input type="file" id="s-file" accept="application/json" hidden></div>
@@ -303,11 +309,11 @@
     box.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.close !== undefined) { modal.hidden = true; return; }
-      if (b.dataset.save !== undefined) { read(); await Store.flush(); if (s.apiKey) { try { await resolveModels(); } catch { /* shown on test */ } } modal.hidden = true; toast('Gespeichert'); return; }
+      if (b.dataset.save !== undefined) { read(); await Store.flush(); if (s.apiKey) { try { await resolveModels(); } catch (error) { toast(`Modelle: ${error.message}`, true); log('models', error.message); } } modal.hidden = true; toast('Gespeichert'); return; }
       if (b.dataset.test !== undefined) {
         read(); const out = $('#s-result'); out.textContent = 'Prüft …';
         try { const ids = await resolveModels(); $('#models').innerHTML = ids.filter((id) => /^(gpt|o\d)/.test(id)).sort().map((id) => `<option value="${id}">`).join(''); out.textContent = `OK · Chat ${activeModel()} (${s.effort}) · Transkription ${transcribeModel()} · ${ids.length} Modelle sichtbar`; await Store.flush(); }
-        catch (error) { out.textContent = `Fehler: ${error.message}`; }
+        catch (error) { out.textContent = `Fehler: ${error.message}`; log('models', error.message); }
         return;
       }
       if (b.dataset.export !== undefined) {
@@ -353,7 +359,7 @@
   }
   function messageEl(m) {
     const div = document.createElement('div');
-    if (m.role === 'user') { div.className = 'msg user'; div.textContent = m.content; return div; }
+    if (m.role === 'user') { div.className = 'msg user'; div.textContent = m.label || m.content; return div; }
     div.className = 'msg coach'; div.innerHTML = markdown(m.content);
     if (m.events?.length) {
       const tags = document.createElement('div');
@@ -365,21 +371,23 @@
   function renderMessages() {
     const t = currentThread(); const box = $('#messages'); box.innerHTML = '';
     if (!t.messages.length) {
-      box.innerHTML = `<div class="welcome"><h1>Was dürfen Sie nicht verpassen?</h1><p>Ein Coach, der die 118 Fälle der Matrix kennt, Ihre Notizen und Ihren Stand.</p><p>Schreiben oder diktieren Sie, was Sie wollen: «Prüf mich auf 5 Kinderthemen», «Fragenset zu Beckenringfrakturen», «teste mich hart auf die Hüfte», «was fehlt mir noch», «jetzt die Excel-Punkte dazu».</p><p>Klicken Sie eine Kachel für Notiz, Stand und direkte Abfrage.</p></div>`;
+      box.innerHTML = '<div class="welcome"><h1>Was dürfen Sie nicht verpassen?</h1></div>';
       return;
     }
     for (const m of t.messages) box.appendChild(messageEl(m));
     box.scrollTop = box.scrollHeight;
   }
-  async function send(text) {
+  async function send(text, label) {
     const content = String(text || '').trim();
     if (!content || busy || !requireKey()) return;
     const t = currentThread(); const box = $('#messages');
-    if (!t.messages.length) { box.innerHTML = ''; t.title = content.slice(0, 48); }
-    t.messages.push({ role: 'user', content, t: Date.now() }); t.t = Date.now();
-    box.appendChild(messageEl({ role: 'user', content })); Store.save(); renderThreads();
+    if (!t.messages.length) { box.innerHTML = ''; t.title = (label || content).slice(0, 48); }
+    const userMsg = { role: 'user', content, t: Date.now() }; if (label) userMsg.label = label;
+    t.messages.push(userMsg); t.t = Date.now();
+    box.appendChild(messageEl(userMsg)); Store.save(); renderThreads();
     const el = document.createElement('div'); el.className = 'msg coach'; el.innerHTML = '<span class="spinner"></span>'; box.appendChild(el); box.scrollTop = box.scrollHeight;
-    busy = true; abort = new AbortController(); $('#btn-send').textContent = 'STOPP'; $('#hint').textContent = `${activeModel()} · ${state.settings.effort} · denkt …`;
+    busy = true; abort = new AbortController(); $('#btn-send').textContent = 'STOPP';
+    log('chat', `${activeModel()} · ${state.settings.effort} · ${content.slice(0, 80)}`);
     const events = [];
     const stick = () => { if (box.scrollHeight - box.scrollTop - box.clientHeight < 160) box.scrollTop = box.scrollHeight; };
     try {
@@ -401,9 +409,9 @@
       t.messages.push(msg); el.replaceWith(messageEl(msg));
     } catch (error) {
       if (error.name === 'AbortError') { el.remove(); t.messages.pop(); }
-      else { el.className = 'msg error'; el.textContent = `Fehler: ${error.message}`; }
+      else { el.className = 'msg error'; el.textContent = `Fehler: ${error.message}`; log('chat-error', `${activeModel()} · ${error.status || ''} ${error.message}`); }
     }
-    busy = false; abort = null; $('#btn-send').textContent = 'SENDEN'; $('#hint').textContent = ''; Store.save(); renderThreads(); stick();
+    busy = false; abort = null; $('#btn-send').textContent = 'SENDEN'; Store.save(); renderThreads(); stick();
   }
   function autosize(ta) { ta.style.height = 'auto'; ta.style.height = `${Math.min(220, ta.scrollHeight)}px`; }
 
@@ -416,7 +424,13 @@
     $('#btn-settings').onclick = openSettings;
     $('#btn-new').onclick = newThread;
     $('#threads').onchange = (e) => { state.current = e.target.value; Store.save(); renderMessages(); };
-    $('#chips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; input.value = b.dataset.text; autosize(input); input.focus(); });
+    const CHIPS = {
+      open: ['Prüfe mich auf die Must-knows von 5 zufälligen Fällen der Matrix, die ich noch nie gemacht habe. Nenne die fünf Fälle, dann die erste Frage.', '5 offene Fälle'],
+      weak: ['Prüfe mich auf die Must-knows der Fälle, bei denen ich FEHLT oder TEILWEISE habe, die schlechtesten zuerst. Gibt es keine, nimm nie geprüfte Fälle.', 'Schwächen drillen'],
+      set: ['Erstelle ein Fragenset mit 10 MUST-Fragen quer durch die Matrix, bevorzugt zu offenen Fällen, ohne Antworten.', 'Fragenset'],
+      excel: ['Jetzt die Excel-Punkte zum zuletzt geprüften Fall: stell mir die schweren Fragen, eine nach der anderen.', 'Excel dazu'],
+    };
+    $('#chips').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || !CHIPS[b.dataset.chip]) return; send(...CHIPS[b.dataset.chip]); });
     $('#btn-send').onclick = () => { if (busy) { abort?.abort(); return; } const v = input.value; input.value = ''; autosize(input); send(v); };
     input.addEventListener('input', () => autosize(input));
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#btn-send').click(); } });
@@ -424,7 +438,8 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#case-modal').hidden = true; $('#settings-modal').hidden = true; } });
     window.addEventListener('beforeunload', () => Store.flush());
     if (!state.settings.apiKey) openSettings();
-    else if (!state.settings.resolvedModel) resolveModels().catch(() => {});
+    else if (!state.settings.resolvedModel) resolveModels().catch((error) => { toast(`Modelle: ${error.message}`, true); log('models', error.message); });
+    log('start', `${serverOk ? 'server' : 'localStorage'} · key ${state.settings.apiKey ? 'vorhanden' : 'fehlt'} · modell ${activeModel()} · ${navigator.userAgent}`);
     input.focus();
   }
   init();

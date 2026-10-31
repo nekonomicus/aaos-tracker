@@ -72,3 +72,9 @@ matrix, your notes and your progress are all it knows beyond the model itself.
 `index.html`, `styles.css`, `app.js` (UI, OpenAI calls, dictation, progress), `prompts.js` (everything
 the coach is told), `data/cases.js` (generated from `nekonomicus/fmh-oral-2026`, `app/study-data.ts`),
 `data/notes.js` (your summaries), `server.py` (static files + `userdata/state.json`, daily backups).
+
+## When something does not work
+
+The browser reports every error to the server: it appears in the terminal where `server.py` runs and
+in `drill2/userdata/log.txt` (model used, each chat call, API errors, microphone and transcription
+errors). Paste those lines when asking for help.

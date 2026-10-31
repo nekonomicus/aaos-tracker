@@ -10,7 +10,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }
 [hidden] { display: none !important; }
-.label, .btn, .chips button, .brand, .stats, .tile, .region-h, .hint, .select, .meta, .toast { font-family: var(--mono); font-weight: 700; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+.label, .btn, .chips button, .brand, .stats, .tile, .region-h, .select, .meta, .toast { font-family: var(--mono); font-weight: 700; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
 
 /* top */
 .top { flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--line); }
@@ -83,7 +83,6 @@ button:disabled { cursor: default; opacity: .4; }
 #input:focus { border-color: var(--muted); }
 .btn.mic { min-height: 44px; }
 .btn.primary { min-height: 44px; }
-.hint { margin-top: 6px; color: var(--faint); min-height: 12px; }
 
 /* modals */
 .modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .6); padding: 16px; }
@@ -94,7 +93,6 @@ button:disabled { cursor: default; opacity: .4; }
 .field input, .field select, .field textarea { padding: 8px 10px; border: 1px solid var(--line); background: #121410; color: var(--ink); outline: none; }
 .field textarea { min-height: 140px; resize: vertical; line-height: 1.4; }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--muted); }
-.field .help { color: var(--muted); font-size: 12px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row.between { justify-content: space-between; }
 .status-row { display: grid; grid-template-columns: 60px 1fr; gap: 6px 10px; align-items: center; margin-bottom: 12px; }

@@ -23,17 +23,16 @@
     <div class="messages" id="messages"></div>
     <div class="composer">
       <div class="chips" id="chips">
-        <button data-text="Prüfe mich auf die Must-knows von 5 zufälligen Fällen, die ich noch nie gemacht habe.">5 offene Fälle</button>
-        <button data-text="Prüfe mich auf die Must-knows der Fälle, bei denen ich FEHLT oder TEILWEISE habe, die schlechtesten zuerst.">Schwächen drillen</button>
-        <button data-text="Erstelle ein Fragenset mit 10 MUST-Fragen quer durch die Matrix, ohne Antworten.">Fragenset</button>
-        <button data-text="Jetzt die Excel-Punkte zum zuletzt geprüften Fall: stell mir die schweren Fragen.">Excel dazu</button>
+        <button data-chip="open">5 offene Fälle</button>
+        <button data-chip="weak">Schwächen drillen</button>
+        <button data-chip="set">Fragenset</button>
+        <button data-chip="excel">Excel dazu</button>
       </div>
       <div class="input-row">
-        <textarea id="input" rows="1" placeholder="Prüf mich auf 5 Kinderthemen … / Fragenset zu Beckenringfrakturen … / teste mich hart auf die Hüfte …"></textarea>
+        <textarea id="input" rows="1" placeholder="Nachricht …"></textarea>
         <button class="btn mic" id="btn-mic" title="Diktieren (Aufnahme starten / stoppen)">● SPRECHEN</button>
         <button class="btn primary" id="btn-send">SENDEN</button>
       </div>
-      <div class="hint" id="hint"></div>
     </div>
   </section>
 </main>

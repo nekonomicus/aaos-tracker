@@ -101,6 +101,22 @@ class Handler(SimpleHTTPRequestHandler):
             self.path = '/index.html'
         return super().do_GET()
 
+    def do_POST(self):
+        path = urlsplit(self.path).path
+        if path != '/api/log':
+            return self.send_json({'error': 'not found'}, 404)
+        length = min(int(self.headers.get('Content-Length') or 0), 8192)
+        line = self.rfile.read(length).decode('utf-8', 'replace').replace('\n', ' ').strip()
+        stamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        sys.stderr.write(f'{stamp}  {line}\n')
+        try:
+            os.makedirs(DATA, exist_ok=True)
+            with open(os.path.join(DATA, 'log.txt'), 'a', encoding='utf-8') as handle:
+                handle.write(f'{stamp}  {line}\n')
+        except OSError:
+            pass
+        return self.send_json({'ok': True})
+
     def do_PUT(self):
         path = urlsplit(self.path).path
         if path != '/api/state':
