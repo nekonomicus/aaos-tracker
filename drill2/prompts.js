@@ -25,6 +25,7 @@ Ohne Angabe gilt MUST. «hart», «schwer», «schwierig», «Excel», «Exzelle
   function notesBlock(cases, notesFor) {
     const parts = [];
     for (const c of cases) { const n = (notesFor(c.id) || '').trim(); if (n) parts.push(`[${c.id} · ${c.title}]\n${n}`); }
+    for (const key of Object.keys(window.NOTES || {})) { if (cases.some((c) => c.id === key)) continue; const n = (window.NOTES[key] || '').trim(); if (n) parts.push(`[Fallübergreifend · ${key}]\n${n}`); }
     if (!parts.length) return 'NOTIZEN DES KANDIDATEN: noch keine. Leite die MUST-Punkte aus dem Standardwissen ab (AO Surgery Reference, Miller, Hefti, Schweizer Praxis).';
     return `NOTIZEN DES KANDIDATEN (seine eigenen Ultra-Kurzzusammenfassungen; wo eine existiert, ist sie der Massstab für die MUST-Punkte dieses Falls: ihre Punkte zuerst abfragen, nur ergänzen, was ein Schweizer Prüfer zusätzlich sicher erwartet, und Ergänzungen als solche kennzeichnen; wo keine existiert, Standardwissen):\n${parts.join('\n\n')}`;
   }
