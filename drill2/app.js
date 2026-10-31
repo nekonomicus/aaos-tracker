@@ -20,7 +20,7 @@
 
   // ------------------------------------------------------------------ state
   const DEFAULT_SETTINGS = { apiKey: '', model: 'auto', resolvedModel: '', effort: 'high', transcribeModel: 'auto', resolvedTranscribe: '' };
-  let state = { version: 1, settings: { ...DEFAULT_SETTINGS }, progress: {}, notes: {}, threads: [], current: '' };
+  let state = { version: 1, settings: { ...DEFAULT_SETTINGS }, progress: {}, notes: {}, memory: [], activeCase: '', threads: [], current: '' };
   let serverOk = false;
 
   const Store = {
@@ -30,6 +30,7 @@
       if (serverOk) { try { saved = await fetch('/api/state', { cache: 'no-store' }).then((r) => r.json()); } catch { saved = null; } }
       else { try { saved = JSON.parse(localStorage.getItem('fmhmusts.state') || 'null'); } catch { saved = null; } }
       if (saved && saved.settings) state = { ...state, ...saved, settings: { ...DEFAULT_SETTINGS, ...saved.settings } };
+      if (!Array.isArray(state.memory)) state.memory = [];
       if (state.settings.importedKey) { delete state.settings.importedKey; toast('API-Schlüssel aus dem alten Drill übernommen'); this.save(); }
     },
     _timer: null,
@@ -52,6 +53,33 @@
       state.progress[id] = p;
     }
     Store.save(); renderMatrix(); renderStats();
+  }
+  function setNote(id, text, append) {
+    const cur = noteFor(id); const next = append && cur.trim() ? `${cur.trim()}\n${String(text || '').trim()}` : String(text || '').trim();
+    if (next === (NOTES[id] || '').trim()) delete state.notes[id]; else state.notes[id] = next;
+    Store.save(); renderMatrix();
+  }
+  function remember(text, kind = 'regel') {
+    const t = String(text || '').trim(); if (!t) return;
+    if (state.memory.some((m) => (m.text || m) === t)) return;
+    state.memory.push({ text: t, kind, t: Date.now() }); Store.save();
+  }
+  function runTool(name, args) {
+    if (name === 'fortschritt') {
+      const c = caseById(String(args.case_id || '').trim());
+      if (!c) return `Unbekannte case_id «${args.case_id}». Gültig sind die IDs der Matrix.`;
+      const stufe = args.stufe === 'excel' ? 'excel' : 'must'; const erg = ['ok', 'teilweise', 'fehlt'].includes(args.ergebnis) ? args.ergebnis : 'teilweise';
+      setProgress(c.id, stufe, erg, args.luecken); state.activeCase = c.id;
+      return { text: `Eingetragen: ${c.title} · ${stufe} ${erg}.`, event: { case_id: c.id, stufe, ergebnis: erg } };
+    }
+    if (name === 'notiz_speichern') {
+      const c = caseById(String(args.case_id || '').trim());
+      if (!c) return `Unbekannte case_id «${args.case_id}».`;
+      setNote(c.id, args.text, args.modus === 'anhängen'); state.activeCase = c.id;
+      return { text: `Notiz zu ${c.title} gespeichert (${noteFor(c.id).length} Zeichen).`, event: { case_id: c.id, stufe: 'notiz', ergebnis: 'notiz' } };
+    }
+    if (name === 'merken') { remember(args.regel); return { text: 'Gemerkt.', event: { case_id: '', stufe: 'merken', ergebnis: 'merken', text: args.regel } }; }
+    return 'Unbekanntes Werkzeug.';
   }
   function statusOf(p) {
     if (!p) return '';
@@ -199,8 +227,8 @@
       body.previous_response_id = out.id;
       body.input = list.map((c) => {
         let args = {}; try { args = JSON.parse(c.arguments || '{}'); } catch { args = {}; }
-        const result = c.name === 'fortschritt' ? onTool(args) : 'Unbekanntes Werkzeug.';
-        return { type: 'function_call_output', call_id: c.call_id, output: String(result) };
+        const result = onTool(c.name, args);
+        return { type: 'function_call_output', call_id: c.call_id, output: String(typeof result === 'object' ? result.text : result) };
       });
     }
     return content;
@@ -308,10 +336,22 @@
       if (b.dataset.set) { const [stufe, v] = b.dataset.set.split(':'); setProgress(id, stufe, v); return openCase(id); }
       if (b.dataset.ask) {
         const ask = { must: [`Prüfe mich auf die Must-knows von «${c.title}» (${c.id}).`, `${c.title} · MUST`], excel: [`Prüfe mich auf Excel-Niveau zu «${c.title}» (${c.id}): die schweren Fragen.`, `${c.title} · EXCEL`], list: [`Zeig mir die Must-knows und danach die Excel-Punkte zu «${c.title}» (${c.id}), kompakt.`, `${c.title} · Liste`] }[b.dataset.ask];
-        close(); send(ask[0], ask[1]);
+        state.activeCase = id; close(); send(ask[0], ask[1]);
       }
     };
     modal.onclick = (e) => { if (e.target === modal) close(); };
+    modal.hidden = false;
+  }
+
+  function openPicker() {
+    const box = $('#case-box'); const modal = $('#case-modal');
+    box.innerHTML = `<div class="row between"><h2>Notiz zu welchem Fall?</h2><button class="btn ghost" data-close>✕</button></div>
+      <div class="field"><input type="text" id="pick" placeholder="Fall suchen …" autocomplete="off"></div><div class="pick-list" id="pick-list"></div>`;
+    const list = $('#pick-list'); const input = $('#pick');
+    const paint = () => { const q = input.value.trim().toLowerCase(); const hits = CASES.filter((c) => !q || c.title.toLowerCase().includes(q) || c.region.toLowerCase().includes(q)).slice(0, 40); list.innerHTML = hits.map((c) => `<button class="pick" data-id="${c.id}">${esc(c.title)}<span>${esc(c.region)}</span></button>`).join(''); };
+    input.oninput = paint; paint(); input.focus();
+    box.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.close !== undefined) { modal.hidden = true; return; } if (b.dataset.id) { state.activeCase = b.dataset.id; openCase(b.dataset.id); } };
+    modal.onclick = (e) => { if (e.target === modal) modal.hidden = true; };
     modal.hidden = false;
   }
 
@@ -325,12 +365,17 @@
       <div class="field"><span class="label">Modell</span><input type="text" id="s-model" value="${esc(s.model)}" list="models"><datalist id="models"></datalist></div>
       <div class="field"><span class="label">Denkaufwand</span><select id="s-effort">${opt([['xhigh', 'xhigh'], ['high', 'high'], ['medium', 'medium'], ['low', 'low']], s.effort)}</select></div>
       <div class="field"><span class="label">Transkription</span><input type="text" id="s-stt" value="${esc(s.transcribeModel)}"></div>
+      <div class="field"><span class="label">Gedächtnis</span><textarea id="s-memory">${esc(state.memory.map((m) => m.text || m).join('\n'))}</textarea></div>
       <div class="row between">
         <div class="row"><button class="btn primary" data-save>SPEICHERN</button><button class="btn" data-test>VERBINDUNG TESTEN</button></div>
         <div class="row"><button class="btn ghost" data-export>EXPORT</button><button class="btn ghost" data-import>IMPORT</button><input type="file" id="s-file" accept="application/json" hidden></div>
       </div>
       <div class="meta" id="s-result" style="margin-top:10px"></div>`;
-    const read = () => { s.apiKey = $('#s-key').value.trim(); s.model = $('#s-model').value.trim() || 'auto'; s.effort = $('#s-effort').value; s.transcribeModel = $('#s-stt').value.trim() || 'auto'; };
+    const read = () => {
+      s.apiKey = $('#s-key').value.trim(); s.model = $('#s-model').value.trim() || 'auto'; s.effort = $('#s-effort').value; s.transcribeModel = $('#s-stt').value.trim() || 'auto';
+      const lines = $('#s-memory').value.split('\n').map((l) => l.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+      state.memory = lines.map((text) => state.memory.find((m) => (m.text || m) === text) || { text, kind: 'regel', t: Date.now() });
+    };
     box.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.close !== undefined) { modal.hidden = true; return; }
@@ -354,6 +399,7 @@
         const data = JSON.parse(await f.text());
         if (!data.progress) throw new Error('kein Fortschritt in der Datei');
         state.progress = { ...state.progress, ...data.progress }; state.notes = { ...state.notes, ...(data.notes || {}) };
+        for (const m of data.memory || []) remember(m.text || m, m.kind || 'regel');
         if (Array.isArray(data.threads)) { const ids = new Set(state.threads.map((t) => t.id)); state.threads = state.threads.concat(data.threads.filter((t) => !ids.has(t.id))); }
         await Store.flush(); renderMatrix(); renderStats(); renderThreads(); toast('Importiert');
       } catch (error) { toast(`Import: ${error.message}`, true); }
@@ -369,9 +415,24 @@
     if (!t) { t = { id: uid(), title: '', t: Date.now(), messages: [] }; state.threads.push(t); state.current = t.id; }
     return t;
   }
+  // the finished conversation is distilled into memory lines once (small call, low effort)
+  async function distillThread(t) {
+    if (!t || t.distilled || t.messages.length < 4 || !state.settings.apiKey) return;
+    t.distilled = true; Store.save();
+    const transcript = t.messages.map((m) => `${m.role === 'user' ? 'KANDIDAT' : 'COACH'}: ${m.content}`).join('\n').slice(-24000);
+    try {
+      const body = { model: activeModel(), stream: false, store: false, input: P.distill(transcript) };
+      if (isReasoningModel(activeModel())) body.reasoning = { effort: 'low' };
+      const out = itemsOf(await postResponses(body).then((r) => r.json()));
+      const lines = out.content.split('\n').map((l) => l.replace(/^\s*-\s*/, '').trim()).filter((l) => l && l !== '-');
+      for (const l of lines.slice(0, 4)) remember(`${new Date(t.t).toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit' })}: ${l}`, 'chat');
+      if (lines.length) log('memory', `${lines.length} Zeilen aus «${t.title}»`);
+    } catch (error) { t.distilled = false; Store.save(); log('memory-error', error.message); }
+  }
   function newThread() {
     const cur = state.threads.find((x) => x.id === state.current);
     if (cur && !cur.messages.length) return;
+    distillThread(cur);
     const t = { id: uid(), title: '', t: Date.now(), messages: [] };
     state.threads.push(t); state.current = t.id;
     if (state.threads.length > 40) state.threads = state.threads.filter((x) => x.messages.length).slice(-40).concat(t.messages.length ? [] : [t]).filter((x, i, a) => a.indexOf(x) === i);
@@ -388,7 +449,12 @@
     div.className = 'msg coach'; div.innerHTML = markdown(m.content);
     if (m.events?.length) {
       const tags = document.createElement('div');
-      tags.innerHTML = m.events.map((ev) => { const c = caseById(ev.case_id); return `<span class="tag ${esc(ev.ergebnis)}">${esc(c?.title || ev.case_id)} · ${esc(ev.stufe)} ${esc(ev.ergebnis)}</span>`; }).join('');
+      tags.innerHTML = m.events.map((ev) => {
+        const c = caseById(ev.case_id);
+        if (ev.stufe === 'notiz') return `<span class="tag">Notiz · ${esc(c?.title || ev.case_id)}</span>`;
+        if (ev.stufe === 'merken') return `<span class="tag">Gemerkt · ${esc(ev.text || '')}</span>`;
+        return `<span class="tag ${esc(ev.ergebnis)}">${esc(c?.title || ev.case_id)} · ${esc(ev.stufe)} ${esc(ev.ergebnis)}</span>`;
+      }).join('');
       div.appendChild(tags);
     }
     return div;
@@ -416,19 +482,12 @@
     const events = [];
     const stick = () => { if (box.scrollHeight - box.scrollTop - box.clientHeight < 160) box.scrollTop = box.scrollHeight; };
     try {
-      const system = P.system({ cases: CASES, notesFor: noteFor, progressFor, runtime: { model: activeModel(), effort: isReasoningModel(activeModel()) ? state.settings.effort : 'n/a' } });
+      const system = P.system({ cases: CASES, notesFor: noteFor, progressFor, memory: state.memory, runtime: { model: activeModel(), effort: isReasoningModel(activeModel()) ? state.settings.effort : 'n/a' } });
       const history = t.messages.slice(-40).map((m) => ({ role: m.role, content: m.content }));
       const full = await chatStream({
         system, messages: history, signal: abort.signal,
         onDelta: (txt) => { el.innerHTML = markdown(txt); stick(); },
-        onTool: (args) => {
-          const c = caseById(String(args.case_id || '').trim());
-          if (!c) return `Unbekannte case_id «${args.case_id}». Gültig sind die IDs der Matrix.`;
-          const stufe = args.stufe === 'excel' ? 'excel' : 'must'; const erg = ['ok', 'teilweise', 'fehlt'].includes(args.ergebnis) ? args.ergebnis : 'teilweise';
-          setProgress(c.id, stufe, erg, args.luecken);
-          events.push({ case_id: c.id, stufe, ergebnis: erg });
-          return `Eingetragen: ${c.title} · ${stufe} ${erg}.`;
-        },
+        onTool: (name, args) => { const r = runTool(name, args); if (r && r.event) events.push(r.event); return r; },
       });
       const msg = { role: 'assistant', content: full || '(keine Antwort)', t: Date.now(), events };
       t.messages.push(msg); el.replaceWith(messageEl(msg));
@@ -448,7 +507,10 @@
     $('#matrix').addEventListener('click', (e) => { const b = e.target.closest('.tile'); if (b) openCase(b.dataset.id); });
     $('#btn-settings').onclick = openSettings;
     $('#btn-new').onclick = newThread;
-    $('#threads').onchange = (e) => { state.current = e.target.value; Store.save(); renderMessages(); };
+    $('#threads').onchange = (e) => { const old = state.threads.find((x) => x.id === state.current); state.current = e.target.value; Store.save(); renderMessages(); distillThread(old); };
+    $('#btn-note').onclick = () => { if (state.activeCase && caseById(state.activeCase)) openCase(state.activeCase); else openPicker(); };
+    // conversations left open for more than 12 hours are distilled on the next start
+    for (const t of state.threads) if (!t.distilled && t.messages.length >= 4 && Date.now() - t.t > 12 * 3600 * 1000) distillThread(t);
     const CHIPS = {
       open: ['Prüfe mich auf die Must-knows von 5 zufälligen Fällen der Matrix, die ich noch nie gemacht habe. Nenne die fünf Fälle, dann die erste Frage.', '5 offene Fälle'],
       weak: ['Prüfe mich auf die Must-knows der Fälle, bei denen ich FEHLT oder TEILWEISE habe, die schlechtesten zuerst. Gibt es keine, nimm nie geprüfte Fälle.', 'Schwächen drillen'],

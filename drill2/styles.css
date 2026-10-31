@@ -99,6 +99,11 @@ button:disabled { cursor: default; opacity: .4; }
 .status-row .btn.sel-ok { background: var(--green); border-color: var(--green); color: var(--green-ink); }
 .status-row .btn.sel-teilweise { background: var(--amber); border-color: var(--amber); color: var(--amber-ink); }
 .status-row .btn.sel-fehlt { background: var(--red); border-color: var(--red); color: var(--red-ink); }
+.pick-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
+.pick { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 0; background: #1e201c; text-align: left; }
+.pick:hover { background: #2a2d27; }
+.pick span { color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+#btn-note { min-height: 44px; }
 .gaps { color: var(--muted); font-size: 13px; margin-bottom: 12px; white-space: pre-wrap; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; padding: 10px 14px; background: var(--ink); color: var(--bg); }
 .toast.bad { background: #ff5e3a; color: #fff; }

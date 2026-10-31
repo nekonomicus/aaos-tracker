@@ -53,6 +53,20 @@ After each graded answer the coach calls the `fortschritt` tool (case, level, ok
 gaps), which updates the matrix at once. The whole progress table is handed to the coach on every
 turn, so "drill my weaknesses" works.
 
+## Memory
+
+Three layers, all handed to the coach on every message and saved in `userdata/state.json`:
+
+- **Note per case**: your ultra-short summary, the basis for the questions on that case. Paste it into the
+  chat ("hier meine Zusammenfassung zu Lisfranc: …") and the coach stores it on the case; or press NOTIZ
+  next to the input to open the pad of the case being drilled (or pick one), or click the tile.
+- **Rules**: say how you want to be taught ("halte die Fragen kurz", "frag immer zuerst nach der
+  Gefahr", "auf Englisch") and the coach memorises it as a rule for all future conversations.
+- **Chat distillate**: when you start a new conversation (NEU) or switch to another, the finished one is
+  distilled into up to four lines (gaps per case, what you had down cold, wishes you expressed).
+
+The whole memory is editable under ⚙ (one line per entry; delete lines to forget).
+
 ## Your notes
 
 `data/notes.js` holds your own ultra-short summaries per case id. Where a note exists, it is the

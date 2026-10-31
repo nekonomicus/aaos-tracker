@@ -41,7 +41,13 @@ Ohne Angabe gilt MUST. «hart», «schwer», «schwierig», «Excel», «Exzelle
     return `FORTSCHRITT (pro Fall: MUST-Stand, EXCEL-Stand, Anzahl Abfragen, zuletzt notierte Lücken; «–» = nie geprüft). MUST ok bei ${done.length} von ${cases.length} Fällen.\n${lines.join('\n')}`;
   }
 
-  function system({ cases, notesFor, progressFor, runtime }) {
+  function memoryBlock(memory) {
+    const items = (memory || []).map((m) => (typeof m === 'string' ? m : m.text)).filter(Boolean);
+    if (!items.length) return 'GEDÄCHTNIS: noch leer.';
+    return `GEDÄCHTNIS (Regeln des Kandidaten, wie er geprüft werden will, und Destillat früherer Gespräche; befolgen und berücksichtigen):\n${items.map((t) => `- ${t}`).join('\n')}`;
+  }
+
+  function system({ cases, notesFor, progressFor, memory, runtime }) {
     return `Du bist Prüfungscoach und Prüfer für die ${EXAM}
 
 ZIEL DIESES DRILLS: Der Kandidat darf in keinem der Fälle der Fallmatrix die Punkte verpassen, die man nicht verpassen darf. Das ist der ganze Zweck. Alles andere ist zweitrangig und kommt erst, wenn er es ausdrücklich verlangt.
@@ -63,8 +69,12 @@ SO ARBEITEST DU:
 - Verlangt er die Lösung oder die Liste direkt («zeig mir die Must-knows zu X»): kompakt liefern, MUST und EXCEL getrennt, MUST zuerst.
 - Bewertung ehrlich und knapp, kein Lob ohne Grund, keine Höflichkeitsfloskeln. Falsche Fakten des Kandidaten immer korrigieren, gefährliche Fehler ausdrücklich als solche benennen.
 - FORTSCHRITT EINTRAGEN: Nach jeder bewerteten Antwort zu einem Fall rufst du das Werkzeug «fortschritt» auf: case_id aus der Matrix, stufe «must» oder «excel», ergebnis «ok» (alle Punkte des Niveaus im Wesentlichen genannt, kein gefährlicher Fehler), «teilweise» (etwa die Hälfte oder mehr) oder «fehlt» (weniger, oder ein gefährlicher Fehler), luecken = die fehlenden oder falschen Punkte in Stichworten. Ein Eintrag pro Fall und Niveau pro Abfrage, nach der letzten Nachfrage zu diesem Fall. Ohne Antwort des Kandidaten kein Eintrag; reine Fragensets oder Listen ergeben keinen Eintrag. Setzt der Kandidat einen Stand selbst («trag Hüftdysplasie als ok ein»), trage ihn ein.
+- NOTIZ SPEICHERN: Liefert der Kandidat eine Zusammenfassung oder Stichworte zu einem Fall («hier meine Zusammenfassung zu Lisfranc», «merk dir für SCFE: …», «das ist meine Liste für …»), rufst du «notiz_speichern» auf: case_id aus der Matrix, text wörtlich wie geliefert (nicht umformulieren, nicht ergänzen), modus «ersetzen» (Standard) oder «anhängen», wenn er ergänzen will. Ab dann ist diese Notiz der Massstab für die MUST-Punkte des Falls. Bestätige in einem Halbsatz und fahre fort.
+- MERKEN: Sagt der Kandidat, wie er geprüft oder unterrichtet werden will (Stil, Strenge, Sprache, Tempo, Format, Reihenfolge, Schwerpunkte, was er nicht will), rufst du «merken» auf mit der Regel in einem Satz, allgemein formuliert. Sie gilt ab sofort und in allen künftigen Gesprächen. Bestätige in einem Halbsatz.
 - Sprache: Deutsch (Schweizer Prüfungssprache), Fachbegriffe und Klassifikationen wie üblich. Schreibt der Kandidat auf Englisch, antworte auf Englisch. Anrede «Sie», wie am Prüfungstisch.
 - Form: kurz. Absätze von höchstens drei Sätzen, Checklisten mit «-», Schlüsselbegriffe **fett**. Keine Tabellen, keine Überschriften über einer Ebene, keine Emojis ausser ✓ ✗ !.
+
+${memoryBlock(memory)}
 
 ${notesBlock(cases, notesFor)}
 
@@ -89,9 +99,48 @@ LAUFZEIT: Du bist das OpenAI-Modell «${runtime.model}» (Denkaufwand ${runtime.
         },
       },
     },
+  }, {
+    type: 'function',
+    function: {
+      name: 'notiz_speichern',
+      description: 'Speichert die vom Kandidaten gelieferte Zusammenfassung wörtlich als seine Notiz zu einem Fall der Matrix.',
+      parameters: {
+        type: 'object', additionalProperties: false,
+        required: ['case_id', 'text', 'modus'],
+        properties: {
+          case_id: { type: 'string', description: 'Fall-ID aus der Matrix' },
+          text: { type: 'string', description: 'Die Notiz wörtlich' },
+          modus: { type: 'string', enum: ['ersetzen', 'anhängen'] },
+        },
+      },
+    },
+  }, {
+    type: 'function',
+    function: {
+      name: 'merken',
+      description: 'Speichert dauerhaft eine Regel des Kandidaten, wie er geprüft oder unterrichtet werden will.',
+      parameters: {
+        type: 'object', additionalProperties: false,
+        required: ['regel'],
+        properties: { regel: { type: 'string', description: 'Die Regel in einem Satz' } },
+      },
+    },
   }];
+
+  // distils a finished conversation into memory lines for the next sessions
+  function distill(transcript) {
+    return `Du destillierst ein Lern-Gespräch zwischen einem Kandidaten der Facharztprüfung Orthopädie (swiss orthopaedics) und seinem Prüfungscoach für künftige Sitzungen.
+Gib höchstens 4 Zeilen zurück, jede beginnt mit «- », keine Überschriften, kein anderer Text. Nur was in künftigen Sitzungen nützt:
+- Wissenslücken des Kandidaten pro Fall (mit Fall-ID, falls genannt), in Stichworten;
+- was er sicher beherrschte (nur wenn klar erkennbar);
+- Wünsche, wie er geprüft oder unterrichtet werden will (nur wenn er sie geäussert hat).
+Nichts erfinden. Steht nichts Nützliches im Gespräch, antworte mit «-».
+
+GESPRÄCH:
+${transcript}`;
+  }
 
   const TRANSCRIBE_HINT = 'Mündliche Prüfungsantwort Orthopädie und Traumatologie, Schweizerdeutsch gefärbt. Fachbegriffe, Klassifikationen, Eigennamen (Garden, Pauwels, Weber, Schatzker, Letournel, Salter-Harris, AO), Abkürzungen (ORIF, TEP, VKB, OSG, USG).';
 
-  window.PROMPTS = { system, TOOLS, TRANSCRIBE_HINT };
+  window.PROMPTS = { system, distill, TOOLS, TRANSCRIBE_HINT };
 })();
