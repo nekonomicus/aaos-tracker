@@ -125,60 +125,85 @@
     Store.save();
     return ids;
   }
-  // chat/completions with streaming; unsupported reasoning efforts step down (xhigh → high → none) and the call is retried
-  async function postChat(body) {
+  // Responses API (function tools + reasoning effort are only allowed there for the gpt-6 models).
+  // Unsupported reasoning efforts step down (xhigh → high → none) and the call is retried.
+  async function postResponses(body) {
     for (;;) {
-      try { return await openaiFetch('/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+      try { return await openaiFetch('/responses', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
       catch (error) {
-        if (body.reasoning_effort && /reasoning_effort|reasoning\.effort|Unsupported value|unsupported_value|Unsupported parameter|unsupported_parameter|Invalid value/i.test(error.message)) {
-          const i = EFFORTS.indexOf(body.reasoning_effort);
-          if (i >= 0 && i < EFFORTS.indexOf('high')) { body.reasoning_effort = 'high'; if (state.settings.effort !== 'high') { state.settings.effort = 'high'; Store.save(); toast(`${body.model} kann kein xhigh · weiter mit high`); } }
-          else delete body.reasoning_effort;
+        if (body.reasoning && /reasoning|Unsupported value|unsupported_value|Unsupported parameter|unsupported_parameter|Invalid value/i.test(error.message)) {
+          const cur = body.reasoning.effort; const i = EFFORTS.indexOf(cur);
+          if (i >= 0 && i < EFFORTS.indexOf('high')) { body.reasoning = { effort: 'high' }; if (state.settings.effort !== 'high') { state.settings.effort = 'high'; Store.save(); toast(`${body.model} kann kein ${cur} · weiter mit high`); } }
+          else delete body.reasoning;
+          log('fallback', `reasoning ${cur} → ${body.reasoning ? body.reasoning.effort : 'ohne'} · ${error.message}`);
           continue;
         }
         throw error;
       }
     }
   }
-  async function chatStream({ system, messages, onDelta, onTool, signal }) {
-    const model = activeModel();
-    const convo = [{ role: 'system', content: system }, ...messages];
-    let full = '';
-    for (let round = 0; round < 6; round += 1) {
-      const body = { model, stream: true, messages: convo, tools: P.TOOLS, tool_choice: 'auto' };
-      if (isReasoningModel(model)) body.reasoning_effort = state.settings.effort || 'high';
-      const res = await postChat(body);
-      const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; full = ''; const calls = new Map();
-      for (;;) {
-        if (signal?.aborted) { reader.cancel(); throw new DOMException('abgebrochen', 'AbortError'); }
-        const { value, done } = await reader.read(); if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n'); buffer = lines.pop();
-        for (const line of lines) {
-          const trimmed = line.trim(); if (!trimmed.startsWith('data:')) continue;
-          const payload = trimmed.slice(5).trim(); if (payload === '[DONE]') continue;
-          try {
-            const delta = JSON.parse(payload).choices?.[0]?.delta || {};
-            if (delta.content) { full += delta.content; onDelta(full); }
-            for (const tc of delta.tool_calls || []) {
-              const cur = calls.get(tc.index) || { id: '', name: '', arguments: '' };
-              if (tc.id) cur.id = tc.id; if (tc.function?.name) cur.name += tc.function.name; if (tc.function?.arguments) cur.arguments += tc.function.arguments;
-              calls.set(tc.index, cur);
-            }
-          } catch { /* partial line */ }
+  let streamingOff = false;
+  const itemsOf = (data) => {
+    const text = (data.output || []).filter((o) => o.type === 'message').flatMap((o) => o.content || []).filter((c) => c.type === 'output_text').map((c) => c.text).join('');
+    const calls = (data.output || []).filter((o) => o.type === 'function_call').map((o) => ({ call_id: o.call_id, name: o.name, arguments: o.arguments || '{}' }));
+    return { id: data.id, content: text, calls };
+  };
+  // one response: streamed when the account allows it, otherwise in one piece
+  async function complete(body, onDelta, signal) {
+    if (streamingOff) body.stream = false;
+    let res;
+    try { res = await postResponses(body); }
+    catch (error) {
+      if (body.stream && /stream/i.test(error.message)) { streamingOff = true; body.stream = false; log('fallback', `ohne Streaming · ${error.message}`); res = await postResponses(body); }
+      else throw error;
+    }
+    if (!body.stream) { const out = itemsOf(await res.json()); if (out.content) onDelta(out.content); return out; }
+    const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let full = ''; let id = ''; const calls = new Map();
+    for (;;) {
+      if (signal?.aborted) { reader.cancel(); throw new DOMException('abgebrochen', 'AbortError'); }
+      const { value, done } = await reader.read(); if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n'); buffer = lines.pop();
+      for (const line of lines) {
+        const trimmed = line.trim(); if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim(); if (!payload || payload === '[DONE]') continue;
+        let ev; try { ev = JSON.parse(payload); } catch { continue; }
+        switch (ev.type) {
+          case 'response.created': id = ev.response?.id || id; break;
+          case 'response.output_text.delta': full += ev.delta || ''; onDelta(full); break;
+          case 'response.output_item.added': if (ev.item?.type === 'function_call') calls.set(ev.item.id, { call_id: ev.item.call_id, name: ev.item.name, arguments: ev.item.arguments || '' }); break;
+          case 'response.function_call_arguments.delta': { const c = calls.get(ev.item_id); if (c) c.arguments += ev.delta || ''; break; }
+          case 'response.function_call_arguments.done': { const c = calls.get(ev.item_id); if (c) c.arguments = ev.arguments || c.arguments; break; }
+          case 'response.output_item.done': if (ev.item?.type === 'function_call') calls.set(ev.item.id, { call_id: ev.item.call_id, name: ev.item.name, arguments: ev.item.arguments || '{}' }); break;
+          case 'response.completed': { const out = itemsOf(ev.response || {}); id = out.id || id; if (!full && out.content) { full = out.content; onDelta(full); } break; }
+          case 'response.failed': case 'response.incomplete': throw new Error(ev.response?.error?.message || ev.response?.incomplete_details?.reason || 'Antwort abgebrochen');
+          case 'error': throw new Error(ev.error?.message || ev.message || 'Stream-Fehler');
+          default: break;
         }
       }
-      const list = [...calls.values()].filter((c) => c.id && c.name);
-      if (!list.length) return full;
-      convo.push({ role: 'assistant', content: full || null, tool_calls: list.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } })) });
-      for (const c of list) {
-        let args = {}; try { args = JSON.parse(c.arguments || '{}'); } catch { args = {}; }
-        let out = 'Unbekanntes Werkzeug.';
-        if (c.name === 'fortschritt') out = onTool(args);
-        convo.push({ role: 'tool', tool_call_id: c.id, content: String(out) });
-      }
     }
-    return full;
+    return { id, content: full, calls: [...calls.values()] };
+  }
+  const RESPONSE_TOOLS = P.TOOLS.map((t) => ({ type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters, strict: false }));
+  async function chatStream({ system, messages, onDelta, onTool, signal }) {
+    const model = activeModel();
+    const body = { model, stream: true, store: true, instructions: system, input: messages.map((m) => ({ role: m.role, content: m.content })), tools: RESPONSE_TOOLS, tool_choice: 'auto' };
+    if (isReasoningModel(model)) body.reasoning = { effort: state.settings.effort || 'high' };
+    let content = '';
+    for (let round = 0; round < 6; round += 1) {
+      const out = await complete(body, onDelta, signal);
+      content = out.content;
+      const list = out.calls.filter((c) => c.call_id && c.name);
+      if (!list.length) return content;
+      // the tool results continue the same response chain; reasoning state stays on the server
+      body.previous_response_id = out.id;
+      body.input = list.map((c) => {
+        let args = {}; try { args = JSON.parse(c.arguments || '{}'); } catch { args = {}; }
+        const result = c.name === 'fortschritt' ? onTool(args) : 'Unbekanntes Werkzeug.';
+        return { type: 'function_call_output', call_id: c.call_id, output: String(result) };
+      });
+    }
+    return content;
   }
   async function transcribe(blob, ext) {
     const form = new FormData();

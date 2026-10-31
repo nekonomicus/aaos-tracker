@@ -65,7 +65,8 @@ adds as its own. Notes typed in the app override the file locally. Paste new sum
 "auto" picks the strongest chat model your key can use (gpt-6 › gpt-5.x › gpt-4.1; never mini, nano
 or the slow pro models). Reasoning effort defaults to high; xhigh is tried if you choose it and the
 model refuses it, the setting falls back to high. The coach has no web search and no documents: the
-matrix, your notes and your progress are all it knows beyond the model itself.
+matrix, your notes and your progress are all it knows beyond the model itself. Calls go through the
+Responses API (the gpt-6 models accept function tools with reasoning only there).
 
 ## Files
 
